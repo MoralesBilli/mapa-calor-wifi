@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -19,13 +19,22 @@ GRID_RESOLUTION = 220
 
 
 @dataclass
+class NearbyApReading:
+    """Otro AP/repetidor del mismo SSID visto al medir (no el asociado)."""
+
+    bssid: str
+    signal_pct: int
+
+
+@dataclass
 class SamplePoint:
     x_m: float
     y_m: float
-    signal_pct: float
-    bssid: str
+    signal_pct: float  # señal del AP al que estaba conectado
+    bssid: str  # BSSID asociado en el momento de la medición
     ssid: str
     timestamp: str
+    nearby_aps: list[NearbyApReading] = field(default_factory=list)
 
 
 def bounds_from_size(width_m: float, height_m: float) -> tuple[float, float, float, float]:

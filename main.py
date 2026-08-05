@@ -15,10 +15,20 @@ from matplotlib.text import Annotation
 
 from heatmap import (
     MIN_POINTS_FOR_HEATMAP,
+    NearbyApReading,
     SamplePoint,
     bounds_from_size,
     draw_heatmap,
     save_figure_image,
+)
+from project_io import (
+    PROJECT_EXTENSION,
+    ProjectIOError,
+    build_project_dict,
+    load_project_file,
+    resolve_floor_plan_path,
+    samples_from_project,
+    save_project_file,
 )
 from wifi_scanner import (
     VisibleNetwork,
@@ -27,9 +37,11 @@ from wifi_scanner import (
     get_interface_status,
     list_visible_networks,
     measure_current_network,
+    scan_bssids_for_ssid,
 )
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
+PROJECTS_DIR = DATA_DIR / "proyectos"
 PLANOS_DIR = Path(__file__).resolve().parent / "planos"
 # Plano centrado en (0,0): ±15 m en X e Y (30×30 m totales) sin imagen
 DEFAULT_HALF_EXTENT_M = 15.0
@@ -47,8 +59,13 @@ HEATMAP_ALPHA_WITH_PLAN = 0.55
 NO_SIGNAL_COLOR = "#7B2D8E"  # violeta
 # Cada cuánto se consulta el AP/red asociados (ms)
 CONNECTION_POLL_MS = 2500
+# Cada cuántos ciclos de conexión se reescanean los BSSID del SSID
+AP_SCAN_EVERY_N_POLLS = 3
 AP_MARKER_ACTIVE = "#C2410C"  # naranja: AP al que estás conectado
 AP_MARKER_OTHER = "#64748B"  # gris: otros AP marcados
+AP_LIST_OTHER = "#334155"
+# Radio (m) para info (clic) / borrar (clic der.) sobre un punto existente
+REMOVE_HIT_RADIUS_M = 0.6
 
 
 @dataclass
@@ -66,6 +83,7 @@ class WifiHeatmapApp:
         self.samples: list[SamplePoint] = []
         self.ssid: str = "?"
         self.bssid: str = ""
+        self.signal_pct: int | None = None
         self.connected: bool = False
         self.status: str = ""
         self.heatmap_mesh = None
@@ -79,12 +97,21 @@ class WifiHeatmapApp:
         self.floor_plan_path: Path | None = None
         self.plan_width_m = DEFAULT_PLAN_WIDTH_M
         self.plan_length_m = DEFAULT_PLAN_LENGTH_M
+        self.project_path: Path | None = None
         self._measuring = False
         self._placing_ap = False
         self.ap_locations: dict[str, ApLocation] = {}
+        # BSSID visibles del mismo SSID: (bssid, signal_pct)
+        self.visible_aps: list[tuple[str, int]] = []
+        self._visible_aps_ssid: str = ""
         self._help_artist = None
         self._connection_artist = None
         self._connection_timer = None
+        self._ap_list_artists: list = []
+        self._ap_scan_counter = 0
+        self._ap_list_snapshot: tuple | None = None
+        self._point_info_artists: list = []
+        self._inspected_sample: SamplePoint | None = None
         self._ap_scatter_active: PathCollection | None = None
         self._ap_scatter_other: PathCollection | None = None
         self._ap_annotations: list[Annotation] = []
@@ -104,11 +131,13 @@ class WifiHeatmapApp:
             self.connected = False
             self.ssid = "?"
             self.bssid = ""
+            self.signal_pct = None
             self.status = f"Aviso: {exc}"
 
-        self.fig, self.ax = plt.subplots(figsize=(10, 7))
+        self.fig, self.ax = plt.subplots(figsize=(12.5, 7.2))
         self.fig.canvas.manager.set_window_title("Mapa de calor WiFi")
         self._setup_axes()
+        self._refresh_visible_aps(force=True)
         self._update_title()
         self._draw_help()
 
@@ -262,9 +291,102 @@ class WifiHeatmapApp:
         self.connected = status.connected
         self.ssid = status.ssid if status.connected and status.ssid else "?"
         self.bssid = status.bssid if status.connected else ""
+        self.signal_pct = status.signal_pct if status.connected else None
 
     def _connection_snapshot(self) -> tuple[bool, str, str]:
         return (self.connected, self.ssid, self.bssid.casefold())
+
+    def _ap_list_view_snapshot(self) -> tuple:
+        """Estado visual de la lista lateral (para evitar redibujos innecesarios)."""
+        current = self.bssid.casefold() if self.connected and self.bssid else ""
+        rows = tuple(
+            (bssid.casefold(), pct, bssid.casefold() == current)
+            for bssid, pct in self.visible_aps
+        )
+        ssid = self.ssid if self.connected else ""
+        return (ssid, current, rows)
+
+    def _sync_current_ap_into_list(self) -> bool:
+        """
+        Ajusta la lista en memoria al AP asociado (rápido, sin netsh).
+        Útil para resaltar de inmediato un roaming entre AP.
+        """
+        before = self._ap_list_view_snapshot()
+        if not self.connected or self.ssid in {"?", ""} or not self.bssid:
+            self.visible_aps = []
+            self._visible_aps_ssid = ""
+        else:
+            # Si cambió de red, no mezclar BSSID del SSID anterior
+            if self._visible_aps_ssid.casefold() != self.ssid.casefold():
+                self.visible_aps = []
+            self._visible_aps_ssid = self.ssid
+            key = self.bssid.casefold()
+            assoc_pct = self.signal_pct if self.signal_pct is not None else 0
+            by_key: dict[str, tuple[str, int]] = {
+                b.casefold(): (b, p) for b, p in self.visible_aps
+            }
+            if key not in by_key:
+                by_key[key] = (self.bssid, assoc_pct)
+            else:
+                listed_bssid, listed_pct = by_key[key]
+                by_key[key] = (listed_bssid, max(listed_pct, assoc_pct))
+            self.visible_aps = sorted(
+                by_key.values(),
+                key=lambda item: (-item[1], item[0].casefold()),
+            )
+        after = self._ap_list_view_snapshot()
+        if after != before:
+            self._ap_list_snapshot = after
+            return True
+        return False
+
+    def _refresh_visible_aps(self, *, force: bool = False) -> bool:
+        """
+        Escanea BSSID del SSID actual. Devuelve True si la lista visual cambió.
+        """
+        before = self._ap_list_view_snapshot()
+        if not self.connected or self.ssid in {"?", ""}:
+            self.visible_aps = []
+            self._visible_aps_ssid = ""
+            after = self._ap_list_view_snapshot()
+            changed = after != before or force
+            if changed:
+                self._ap_list_snapshot = after
+            return changed
+
+        found: list[tuple[str, int]] = []
+        try:
+            found = scan_bssids_for_ssid(self.ssid)
+        except WifiScannerError:
+            found = []
+
+        by_key: dict[str, tuple[str, int]] = {}
+        for bssid, pct in found:
+            key = bssid.casefold()
+            prev = by_key.get(key)
+            if prev is None or pct > prev[1]:
+                by_key[key] = (bssid, pct)
+
+        # Incluir siempre el AP asociado, aunque el escaneo aún no lo liste
+        if self.bssid:
+            key = self.bssid.casefold()
+            assoc_pct = self.signal_pct if self.signal_pct is not None else 0
+            if key not in by_key:
+                by_key[key] = (self.bssid, assoc_pct)
+            else:
+                listed_bssid, listed_pct = by_key[key]
+                by_key[key] = (listed_bssid, max(listed_pct, assoc_pct))
+
+        self.visible_aps = sorted(
+            by_key.values(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        self._visible_aps_ssid = self.ssid
+        after = self._ap_list_view_snapshot()
+        changed = after != before or force
+        if changed:
+            self._ap_list_snapshot = after
+        return changed
 
     def _start_connection_monitor(self) -> None:
         """Consulta periódicamente si cambió la red o el AP asociado."""
@@ -288,7 +410,7 @@ class WifiHeatmapApp:
         self._stop_connection_monitor()
 
     def _poll_connection_change(self) -> None:
-        """Detecta cambio de SSID/AP y actualiza el indicador sin medir."""
+        """Detecta cambio de SSID/AP y refresca la lista de AP del mismo SSID."""
         if self._measuring:
             return
         before = self._connection_snapshot()
@@ -298,29 +420,49 @@ class WifiHeatmapApp:
             self.connected = False
             self.ssid = "?"
             self.bssid = ""
+            self.signal_pct = None
         after = self._connection_snapshot()
-        if after == before:
+        connection_changed = after != before
+
+        if connection_changed:
+            prev_ssid, prev_bssid = before[1], before[2]
+            if self.connected and self.ssid not in {"?", ""}:
+                ap = self.bssid or "desconocido"
+                if prev_ssid not in {"?", ""} and prev_ssid != self.ssid:
+                    self.status = (
+                        f"Cambio de red: {prev_ssid} → {self.ssid}  ·  AP: {ap}"
+                    )
+                elif prev_bssid and prev_bssid != self.bssid.casefold():
+                    self.status = (
+                        f"Cambio de AP en «{self.ssid}»: ahora {ap}"
+                    )
+                else:
+                    self.status = f"Conectado a «{self.ssid}»  ·  AP: {ap}"
+                print(self._connection_label())
+            else:
+                self.status = "Se perdió la conexión WiFi activa"
+                print(self.status)
+
+            # Resaltado inmediato del AP asociado (antes del escaneo lento)
+            self._sync_current_ap_into_list()
+            self._redraw_ap_markers()
+            self._update_title()
+            self.fig.canvas.draw_idle()
+            self.fig.canvas.flush_events()
+
+        self._ap_scan_counter += 1
+        should_scan = (
+            connection_changed
+            or self._ap_scan_counter >= AP_SCAN_EVERY_N_POLLS
+            or (self.connected and not self.visible_aps)
+        )
+        if not should_scan:
             return
 
-        prev_ssid, prev_bssid = before[1], before[2]
-        if self.connected and self.ssid not in {"?", ""}:
-            ap = self.bssid or "desconocido"
-            if prev_ssid not in {"?", ""} and prev_ssid != self.ssid:
-                self.status = (
-                    f"Cambio de red: {prev_ssid} → {self.ssid}  ·  AP: {ap}"
-                )
-            elif prev_bssid and prev_bssid != self.bssid.casefold():
-                self.status = (
-                    f"Cambio de AP en «{self.ssid}»: ahora {ap}"
-                )
-            else:
-                self.status = f"Conectado a «{self.ssid}»  ·  AP: {ap}"
-            print(self._connection_label())
-        else:
-            self.status = "Se perdió la conexión WiFi activa"
-            print(self.status)
+        self._ap_scan_counter = 0
+        if not self._refresh_visible_aps():
+            return
 
-        self._redraw_ap_markers()
         self._update_title()
         self.fig.canvas.draw_idle()
 
@@ -339,7 +481,7 @@ class WifiHeatmapApp:
                 pass
         color = "#0B6E4F" if self.connected else "#8B2942"
         self._connection_artist = self.fig.text(
-            0.5,
+            0.58,
             0.935,
             self._connection_label(),
             ha="center",
@@ -356,6 +498,141 @@ class WifiHeatmapApp:
             },
         )
 
+    def _clear_ap_list_artists(self) -> None:
+        for artist in self._ap_list_artists:
+            try:
+                artist.remove()
+            except ValueError:
+                pass
+        self._ap_list_artists = []
+
+    def _signal_bar(self, pct: int, width: int = 10) -> str:
+        filled = max(0, min(width, round(pct / 100 * width)))
+        return "█" * filled + "░" * (width - filled)
+
+    def _draw_ap_list_panel(self) -> None:
+        """Panel izquierdo: AP del mismo SSID; resalta el asociado."""
+        self._clear_ap_list_artists()
+
+        panel_x = 0.015
+        top_y = 0.82
+        line_h = 0.038
+
+        title = "AP de la red"
+        if self.connected and self.ssid not in {"?", ""}:
+            title = f"AP de «{self.ssid}»"
+        title_artist = self.fig.text(
+            panel_x,
+            top_y,
+            title,
+            ha="left",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+            color="#0F172A",
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._ap_list_artists.append(title_artist)
+
+        subtitle = self.fig.text(
+            panel_x,
+            top_y - 0.028,
+            "naranja = conectado ahora",
+            ha="left",
+            va="top",
+            fontsize=7.5,
+            color="#64748B",
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._ap_list_artists.append(subtitle)
+
+        y = top_y - 0.055
+        if not self.connected or self.ssid in {"?", ""}:
+            empty = self.fig.text(
+                panel_x,
+                y,
+                "Sin red activa.\nConéctate para ver\nlos AP / repetidores.",
+                ha="left",
+                va="top",
+                fontsize=8.5,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                linespacing=1.35,
+                zorder=20,
+            )
+            self._ap_list_artists.append(empty)
+            return
+
+        if not self.visible_aps:
+            empty = self.fig.text(
+                panel_x,
+                y,
+                "Buscando AP…\n(actualiza solo)",
+                ha="left",
+                va="top",
+                fontsize=8.5,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                linespacing=1.35,
+                zorder=20,
+            )
+            self._ap_list_artists.append(empty)
+            return
+
+        current = self.bssid.casefold() if self.bssid else ""
+        max_rows = 14
+        for idx, (bssid, pct) in enumerate(self.visible_aps[:max_rows]):
+            is_current = bssid.casefold() == current
+            color = AP_MARKER_ACTIVE if is_current else AP_LIST_OTHER
+            weight = "bold" if is_current else "normal"
+            marker = "●" if is_current else "○"
+            short = self._short_bssid(bssid)
+            bar = self._signal_bar(pct)
+            label = f"{marker} {short}\n   {bar} {pct}%"
+            if is_current:
+                label = f"{marker} CONECTADO\n   {short}\n   {bar} {pct}%"
+
+            row = self.fig.text(
+                panel_x,
+                y,
+                label,
+                ha="left",
+                va="top",
+                fontsize=8,
+                fontweight=weight,
+                color=color,
+                family="monospace",
+                transform=self.fig.transFigure,
+                linespacing=1.25,
+                bbox={
+                    "boxstyle": "round,pad=0.28",
+                    "facecolor": "#FFF7ED" if is_current else "#F8FAFC",
+                    "edgecolor": color,
+                    "linewidth": 1.15 if is_current else 0.7,
+                    "alpha": 0.96,
+                },
+                zorder=20,
+            )
+            self._ap_list_artists.append(row)
+            y -= line_h * (1.55 if is_current else 1.25)
+
+        remaining = len(self.visible_aps) - max_rows
+        if remaining > 0:
+            more = self.fig.text(
+                panel_x,
+                y,
+                f"+{remaining} AP más…",
+                ha="left",
+                va="top",
+                fontsize=7.5,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                zorder=20,
+            )
+            self._ap_list_artists.append(more)
+
     def _draw_help(self) -> None:
         if self._help_artist is not None:
             try:
@@ -363,11 +640,13 @@ class WifiHeatmapApp:
             except ValueError:
                 pass
         help_text = (
-            "Clic: medir  |  a: marcar AP  |  p: plano  |  c: quitar plano  |  e/w/r: expandir\n"
-            f"h: heatmap  |  s: guardar 2 imágenes ({IMAGE_EXTENSION})  |  z: deshacer  |  q: salir"
+            "Clic: medir (o info si hay punto cerca)  |  clic der.: quitar  |  "
+            "a: AP  |  p/c: plano  |  e/w/r: expandir\n"
+            "h: heatmap  |  g: guardar proyecto  |  Ctrl+g: guardar como  |  "
+            "o: abrir  |  s: PNG  |  z: deshacer  |  q: salir"
         )
         self._help_artist = self.fig.text(
-            0.5,
+            0.58,
             0.01,
             help_text,
             ha="center",
@@ -375,22 +654,28 @@ class WifiHeatmapApp:
             fontsize=9,
             color="#333333",
         )
-        # Márgenes para que se vean bien las cotas de las orillas
-        self.fig.subplots_adjust(bottom=0.14, left=0.10, right=0.86, top=0.84)
+        # Márgenes: panel AP izq. + panel info punto der. + cotas del mapa
+        self.fig.subplots_adjust(bottom=0.14, left=0.28, right=0.72, top=0.84)
 
     def _update_title(self) -> None:
         size = f"{self.width_m:.0f}×{self.height_m:.0f} m (origen en el centro)"
-        plan = ""
+        extras = []
+        if self.project_path is not None:
+            extras.append(f"proyecto: {self.project_path.name}")
         if self.floor_plan_path is not None:
-            plan = f" — plano: {self.floor_plan_path.name}"
+            extras.append(f"plano: {self.floor_plan_path.name}")
+        extra = (" — " + " · ".join(extras)) if extras else ""
         title = (
             f"Mapa de calor WiFi — {self.ssid} — "
-            f"{len(self.samples)} muestras — {size}{plan}"
+            f"{len(self.samples)} muestras — {size}{extra}"
         )
-        if self.status:
+        # Estados generales arriba; la info de un punto va al panel derecho
+        if self.status and self._inspected_sample is None:
             title = f"{title}\n{self.status}"
         self.ax.set_title(title, fontsize=11)
         self._draw_connection_indicator()
+        self._draw_ap_list_panel()
+        self._draw_point_info_panel()
 
     def _redraw_points(self) -> None:
         """Dibuja solo los puntos de medición (sin líneas ni % que tapen la vista)."""
@@ -598,6 +883,14 @@ class WifiHeatmapApp:
 
         return float(width), float(length)
 
+    def _read_floor_plan_image(self, path: Path) -> np.ndarray:
+        img = mpimg.imread(path)
+        if img.dtype != np.float32 and img.dtype != np.float64:
+            img = img.astype(float)
+            if img.max() > 1.0:
+                img = img / 255.0
+        return img
+
     def load_floor_plan(self) -> None:
         """Abre un diálogo para elegir la imagen del plano y calibrar su escala."""
         import tkinter as tk
@@ -635,11 +928,7 @@ class WifiHeatmapApp:
 
         path = Path(path_str)
         try:
-            img = mpimg.imread(path)
-            if img.dtype != np.float32 and img.dtype != np.float64:
-                img = img.astype(float)
-                if img.max() > 1.0:
-                    img = img / 255.0
+            img = self._read_floor_plan_image(path)
         except Exception as exc:
             self.status = f"No se pudo cargar la imagen: {exc}"
             self._refresh()
@@ -687,7 +976,7 @@ class WifiHeatmapApp:
         self.fig.canvas.draw_idle()
 
     def on_click(self, event: MouseEvent) -> None:
-        if event.inaxes != self.ax or event.button != 1:
+        if event.inaxes != self.ax:
             return
         if event.xdata is None or event.ydata is None:
             return
@@ -699,8 +988,22 @@ class WifiHeatmapApp:
         if not (self._x_min() <= x <= self._x_max() and self._y_min() <= y <= self._y_max()):
             return
 
+        # Clic derecho: quitar el punto de medición más cercano
+        if event.button == 3:
+            self._remove_nearest_sample(x, y)
+            return
+
+        if event.button != 1:
+            return
+
         if self._placing_ap:
             self._place_ap_at(x, y)
+            return
+
+        # Clic sobre / cerca de un punto existente: solo mostrar su info
+        near_index = self._find_nearest_sample_index(x, y)
+        if near_index is not None:
+            self._show_sample_info(self.samples[near_index])
             return
 
         self._measuring = True
@@ -723,6 +1026,10 @@ class WifiHeatmapApp:
                 bssid=reading.bssid,
                 ssid=reading.ssid,
                 timestamp=datetime.now().isoformat(timespec="seconds"),
+                nearby_aps=[
+                    NearbyApReading(bssid=ap.bssid, signal_pct=ap.signal_pct)
+                    for ap in reading.nearby_aps
+                ],
             )
             self.samples.append(sample)
             if sample.signal_pct <= 0:
@@ -733,8 +1040,10 @@ class WifiHeatmapApp:
             else:
                 self.status = (
                     f"Punto ({sample.x_m:.1f}, {sample.y_m:.1f}) → "
-                    f"{sample.signal_pct}%  BSSID {sample.bssid}"
+                    f"{sample.signal_pct}%  AP conectado {sample.bssid}"
                 )
+                if sample.nearby_aps:
+                    self.status += f"  ·  +{len(sample.nearby_aps)} AP cercanos"
             if len(self.samples) < MIN_POINTS_FOR_HEATMAP:
                 self.status += (
                     f"  ({len(self.samples)}/{MIN_POINTS_FOR_HEATMAP} "
@@ -749,6 +1058,7 @@ class WifiHeatmapApp:
                 bssid="sin-señal",
                 ssid=fallback or "desconocida",
                 timestamp=datetime.now().isoformat(timespec="seconds"),
+                nearby_aps=[],
             )
             self.samples.append(sample)
             self.status = (
@@ -803,12 +1113,185 @@ class WifiHeatmapApp:
         self._redraw_ap_markers()
         self._refresh()
 
-    def undo(self) -> None:
+    def _find_nearest_sample_index(self, x: float, y: float) -> int | None:
+        """Índice del punto más cercano dentro de REMOVE_HIT_RADIUS_M, o None."""
         if not self.samples:
-            self.status = "No hay puntos para deshacer."
-            self._refresh()
+            return None
+        best_i = -1
+        best_dist = REMOVE_HIT_RADIUS_M
+        for i, sample in enumerate(self.samples):
+            dist = float(np.hypot(sample.x_m - x, sample.y_m - y))
+            if dist <= best_dist:
+                best_dist = dist
+                best_i = i
+        return best_i if best_i >= 0 else None
+
+    def _clear_point_info_artists(self) -> None:
+        for artist in self._point_info_artists:
+            try:
+                artist.remove()
+            except ValueError:
+                pass
+        self._point_info_artists = []
+
+    def _draw_point_info_panel(self) -> None:
+        """Panel derecho con el detalle del punto inspeccionado."""
+        self._clear_point_info_artists()
+
+        panel_x = 0.735
+        top_y = 0.82
+        title = self.fig.text(
+            panel_x,
+            top_y,
+            "Info del punto",
+            ha="left",
+            va="top",
+            fontsize=10,
+            fontweight="bold",
+            color="#0F172A",
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._point_info_artists.append(title)
+
+        sample = self._inspected_sample
+        if sample is None:
+            empty = self.fig.text(
+                panel_x,
+                top_y - 0.04,
+                "Haz clic en un punto\n(o cerca) para ver\nseñal y AP.",
+                ha="left",
+                va="top",
+                fontsize=8.5,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                linespacing=1.35,
+                zorder=20,
+            )
+            self._point_info_artists.append(empty)
             return
-        removed = self.samples.pop()
+
+        if sample.signal_pct <= 0:
+            signal_txt = "0% sin señal"
+            signal_color = NO_SIGNAL_COLOR
+        else:
+            signal_txt = f"{sample.signal_pct:.0f}%"
+            signal_color = "#0B6E4F"
+
+        lines = [
+            (f"Posición\n({sample.x_m:.1f}, {sample.y_m:.1f}) m", "#0F172A", "bold"),
+            (f"Señal conectado\n{signal_txt}", signal_color, "bold"),
+            (f"AP conectado\n{sample.bssid or 'desconocido'}", AP_MARKER_ACTIVE, "normal"),
+            (f"Red\n«{sample.ssid or 'desconocida'}»", "#334155", "normal"),
+            (f"Fecha\n{sample.timestamp or 'sin fecha'}", "#64748B", "normal"),
+        ]
+
+        y = top_y - 0.045
+        for text, color, weight in lines:
+            row = self.fig.text(
+                panel_x,
+                y,
+                text,
+                ha="left",
+                va="top",
+                fontsize=8,
+                fontweight=weight,
+                color=color,
+                transform=self.fig.transFigure,
+                linespacing=1.25,
+                bbox={
+                    "boxstyle": "round,pad=0.28",
+                    "facecolor": "#F8FAFC",
+                    "edgecolor": color,
+                    "linewidth": 0.8,
+                    "alpha": 0.96,
+                },
+                zorder=20,
+            )
+            self._point_info_artists.append(row)
+            y -= 0.085
+
+        nearby_title = self.fig.text(
+            panel_x,
+            y,
+            "Otros AP cercanos",
+            ha="left",
+            va="top",
+            fontsize=8.5,
+            fontweight="bold",
+            color="#0F172A",
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._point_info_artists.append(nearby_title)
+        y -= 0.03
+
+        if not sample.nearby_aps:
+            none_txt = self.fig.text(
+                panel_x,
+                y,
+                "Ninguno detectado",
+                ha="left",
+                va="top",
+                fontsize=8,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                zorder=20,
+            )
+            self._point_info_artists.append(none_txt)
+            return
+
+        for ap in sample.nearby_aps[:8]:
+            row = self.fig.text(
+                panel_x,
+                y,
+                f"{self._short_bssid(ap.bssid)}  {ap.signal_pct}%",
+                ha="left",
+                va="top",
+                fontsize=8,
+                color=AP_LIST_OTHER,
+                family="monospace",
+                transform=self.fig.transFigure,
+                bbox={
+                    "boxstyle": "round,pad=0.22",
+                    "facecolor": "#F8FAFC",
+                    "edgecolor": "#CBD5E1",
+                    "linewidth": 0.7,
+                    "alpha": 0.96,
+                },
+                zorder=20,
+            )
+            self._point_info_artists.append(row)
+            y -= 0.038
+
+        remaining = len(sample.nearby_aps) - 8
+        if remaining > 0:
+            more = self.fig.text(
+                panel_x,
+                y,
+                f"+{remaining} más…",
+                ha="left",
+                va="top",
+                fontsize=7.5,
+                color="#64748B",
+                transform=self.fig.transFigure,
+                zorder=20,
+            )
+            self._point_info_artists.append(more)
+
+    def _show_sample_info(self, sample: SamplePoint) -> None:
+        """Muestra el detalle del punto en el panel derecho (sin re-medir)."""
+        self._inspected_sample = sample
+        self.status = ""
+        self._refresh()
+
+    def _remove_sample_at(self, index: int) -> None:
+        removed = self.samples.pop(index)
+        if (
+            self._inspected_sample is not None
+            and self._inspected_sample is removed
+        ):
+            self._inspected_sample = None
         self.status = (
             f"Eliminado punto ({removed.x_m:.1f}, {removed.y_m:.1f}) "
             f"{removed.signal_pct}%"
@@ -824,6 +1307,24 @@ class WifiHeatmapApp:
         else:
             self._redraw_points()
             self._refresh()
+
+    def _remove_nearest_sample(self, x: float, y: float) -> None:
+        index = self._find_nearest_sample_index(x, y)
+        if index is None:
+            self.status = (
+                f"Ningún punto cerca del clic "
+                f"(radio {REMOVE_HIT_RADIUS_M:.1f} m)."
+            )
+            self._refresh()
+            return
+        self._remove_sample_at(index)
+
+    def undo(self) -> None:
+        if not self.samples:
+            self.status = "No hay puntos para deshacer."
+            self._refresh()
+            return
+        self._remove_sample_at(len(self.samples) - 1)
 
     def _set_sample_points_visible(self, visible: bool) -> None:
         """Muestra u oculta los puntos de medición (no el origen)."""
@@ -862,6 +1363,226 @@ class WifiHeatmapApp:
         self._refresh()
         print(f"Guardado con puntos: {with_points_path}")
         print(f"Guardado solo calor: {heatmap_only_path}")
+
+    def _default_project_name(self) -> str:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_ssid = "".join(
+            c if c.isalnum() or c in "-_" else "_" for c in self.ssid
+        )
+        if safe_ssid in {"", "?"}:
+            safe_ssid = "sesion"
+        return f"proyecto_{safe_ssid}_{stamp}{PROJECT_EXTENSION}"
+
+    def _ask_project_save_path(self) -> Path | None:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        initialdir = str(
+            self.project_path.parent
+            if self.project_path is not None
+            else PROJECTS_DIR
+        )
+        initialfile = (
+            self.project_path.name
+            if self.project_path is not None
+            else self._default_project_name()
+        )
+        path_str = filedialog.asksaveasfilename(
+            parent=root,
+            title="Guardar proyecto para continuar después",
+            initialdir=initialdir,
+            initialfile=initialfile,
+            defaultextension=PROJECT_EXTENSION,
+            filetypes=[
+                ("Proyecto mapa WiFi", f"*{PROJECT_EXTENSION}"),
+                ("Todos los archivos", "*.*"),
+            ],
+        )
+        root.destroy()
+        if not path_str:
+            return None
+        return Path(path_str)
+
+    def _ask_project_open_path(self) -> Path | None:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        initialdir = str(
+            self.project_path.parent
+            if self.project_path is not None
+            else PROJECTS_DIR
+        )
+        path_str = filedialog.askopenfilename(
+            parent=root,
+            title="Abrir proyecto guardado",
+            initialdir=initialdir,
+            filetypes=[
+                ("Proyecto mapa WiFi", f"*{PROJECT_EXTENSION}"),
+                ("Todos los archivos", "*.*"),
+            ],
+        )
+        root.destroy()
+        if not path_str:
+            return None
+        return Path(path_str)
+
+    def save_project(self, *, ask_path: bool = True) -> None:
+        """
+        Guarda la sesión (puntos, plano, AP, tamaño) en un .wifimap
+        para poder reabrirla y seguir midiendo.
+        """
+        path = self.project_path
+        if ask_path or path is None:
+            chosen = self._ask_project_save_path()
+            if chosen is None:
+                self.status = "Guardado de proyecto cancelado."
+                self._refresh()
+                return
+            path = chosen
+
+        payload = build_project_dict(
+            width_m=self.width_m,
+            height_m=self.height_m,
+            samples=self.samples,
+            ap_locations=self.ap_locations,
+            floor_plan_path=self.floor_plan_path,
+            plan_width_m=self.plan_width_m,
+            plan_length_m=self.plan_length_m,
+            heatmap_visible=self.heatmap_mesh is not None,
+            project_path=path,
+        )
+        try:
+            saved = save_project_file(path, payload)
+        except ProjectIOError as exc:
+            self.status = str(exc)
+            self._refresh()
+            return
+
+        self.project_path = saved
+        self.status = (
+            f"Proyecto guardado: {saved.name}  "
+            f"({len(self.samples)} puntos). Pulsa o para abrirlo después."
+        )
+        self._refresh()
+        print(f"Proyecto guardado: {saved}")
+
+    def open_project(self) -> None:
+        """Carga un .wifimap y restaura el trabajo para continuar midiendo."""
+        path = self._ask_project_open_path()
+        if path is None:
+            self.status = "Apertura de proyecto cancelada."
+            self._refresh()
+            return
+
+        try:
+            data = load_project_file(path)
+            samples = samples_from_project(data)
+        except ProjectIOError as exc:
+            self.status = str(exc)
+            self._refresh()
+            return
+
+        canvas = data.get("canvas") or {}
+        try:
+            width_m = float(canvas.get("width_m", DEFAULT_WIDTH_M))
+            height_m = float(canvas.get("height_m", DEFAULT_HEIGHT_M))
+        except (TypeError, ValueError):
+            self.status = "El proyecto tiene dimensiones de lienzo inválidas."
+            self._refresh()
+            return
+        if width_m <= 0 or height_m <= 0:
+            self.status = "El proyecto tiene dimensiones de lienzo inválidas."
+            self._refresh()
+            return
+
+        floor = data.get("floor_plan")
+        floor_path: Path | None = None
+        floor_array = None
+        plan_width = DEFAULT_PLAN_WIDTH_M
+        plan_length = DEFAULT_PLAN_LENGTH_M
+        plan_warning = ""
+
+        if isinstance(floor, dict):
+            try:
+                plan_width = float(floor.get("width_m", plan_width))
+                plan_length = float(floor.get("length_m", plan_length))
+            except (TypeError, ValueError):
+                pass
+            floor_path = resolve_floor_plan_path(
+                path,
+                floor.get("path"),
+                floor.get("path_absolute"),
+            )
+            if floor_path is None:
+                plan_warning = (
+                    " (aviso: no se encontró la imagen del plano; "
+                    "pulsa p para volver a cargarla)"
+                )
+            else:
+                try:
+                    floor_array = self._read_floor_plan_image(floor_path)
+                except Exception as exc:
+                    floor_path = None
+                    floor_array = None
+                    plan_warning = f" (aviso: plano no legible: {exc})"
+
+        aps: dict[str, ApLocation] = {}
+        for item in data.get("ap_locations") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                ap = ApLocation(
+                    x_m=float(item["x_m"]),
+                    y_m=float(item["y_m"]),
+                    bssid=str(item.get("bssid", "")),
+                    ssid=str(item.get("ssid", "")),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not ap.bssid:
+                continue
+            aps[ap.bssid.casefold()] = ap
+
+        view = data.get("view") or {}
+        want_heatmap = bool(view.get("heatmap_visible", False))
+
+        self.width_m = width_m
+        self.height_m = height_m
+        self.samples = samples
+        self.ap_locations = aps
+        self.plan_width_m = plan_width
+        self.plan_length_m = plan_length
+        self.floor_plan_path = floor_path
+        self.floor_plan_array = floor_array
+        self.project_path = path.resolve()
+        self._placing_ap = False
+        self._inspected_sample = None
+
+        self._setup_axes()
+        if want_heatmap and len(self.samples) >= 3:
+            self._apply_heatmap()
+
+        try:
+            self._refresh_connection_info()
+        except WifiScannerError:
+            pass
+        self._refresh_visible_aps(force=True)
+
+        self.status = (
+            f"Proyecto abierto: {path.name} — {len(self.samples)} puntos"
+            f"{plan_warning}. Puedes seguir midiendo."
+        )
+        self._update_title()
+        self.fig.canvas.draw_idle()
+        print(f"Proyecto abierto: {self.project_path}")
 
     def on_key(self, event: KeyEvent) -> None:
         key = (event.key or "").lower()
@@ -908,6 +1629,13 @@ class WifiHeatmapApp:
                 self._refresh()
             else:
                 self._apply_heatmap()
+        elif key == "g":
+            # Si ya hay proyecto abierto/guardado, sobrescribe; si no, pide ruta
+            self.save_project(ask_path=self.project_path is None)
+        elif key == "ctrl+g":
+            self.save_project(ask_path=True)
+        elif key == "o":
+            self.open_project()
         elif key == "s":
             self.save()
         elif key == "z":
@@ -923,9 +1651,13 @@ class WifiHeatmapApp:
             f"y [{self._y_min():.0f}, {self._y_max():.0f}] m"
         )
         print(f"Carpeta de planos sugerida: {PLANOS_DIR}")
+        print(f"Proyectos: {PROJECTS_DIR}")
         print(
-            "Controles: clic=medir | a=marcar AP | p=cargar plano | c=quitar plano | "
-            "e=expandir | h=heatmap | s=guardar | z=deshacer | q=salir"
+            "Controles: clic=medir (info si hay punto cerca) | clic der.=quitar | "
+            "a=marcar AP | "
+            "p=cargar plano | c=quitar plano | e=expandir | h=heatmap | "
+            "g=guardar proyecto | Ctrl+g=guardar como | o=abrir proyecto | "
+            "s=PNG | z=deshacer | q=salir"
         )
         plt.show()
 

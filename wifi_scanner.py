@@ -16,10 +16,20 @@ class WifiScannerError(Exception):
 
 
 @dataclass(frozen=True)
+class ApSignal:
+    """Señal observada de un BSSID (AP / repetidor)."""
+
+    bssid: str
+    signal_pct: int
+
+
+@dataclass(frozen=True)
 class WifiSample:
     ssid: str
-    signal_pct: int
-    bssid: str
+    signal_pct: int  # señal del AP asociado (conectado)
+    bssid: str  # BSSID del AP asociado
+    # Otros BSSID del mismo SSID vistos en el escaneo (menor u otra señal)
+    nearby_aps: tuple[ApSignal, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -464,13 +474,24 @@ def scan_bssids_for_ssid(ssid: str) -> list[tuple[str, int]]:
             continue
 
         if _key_matches(key, _SIGNAL_KEYS):
-            if current_ssid == ssid and current_bssid:
+            if (
+                current_ssid
+                and current_ssid.casefold() == ssid.casefold()
+                and current_bssid
+            ):
                 pct = _parse_signal_pct(value)
                 if pct is not None:
                     results.append((current_bssid, pct))
             continue
 
-    return results
+    # Deduplicar por BSSID (quedarse con la mejor señal)
+    best: dict[str, tuple[str, int]] = {}
+    for bssid, pct in results:
+        key = bssid.casefold()
+        prev = best.get(key)
+        if prev is None or pct > prev[1]:
+            best[key] = (bssid, pct)
+    return sorted(best.values(), key=lambda item: (-item[1], item[0].casefold()))
 
 
 def measure_current_network(
@@ -482,8 +503,7 @@ def measure_current_network(
 
     - WiFi encendido pero sin red conectada → 0% (sin señal).
     - WiFi apagado / error de interfaz → 0% o error controlado.
-    - Conectado → mejor % entre BSSIDs del mismo SSID (repetidores),
-      o la señal de la interfaz asociada.
+    - Conectado → señal del AP asociado + lista de otros BSSID del mismo SSID.
     """
     label_ssid = (
         fallback_ssid
@@ -509,19 +529,44 @@ def measure_current_network(
     ssid = status.ssid or label_ssid
     time.sleep(scan_delay_s)
 
-    # Conectado: considerar repetidores del mismo SSID + señal asociada
-    best_signal = status.signal_pct if status.signal_pct is not None else 0
-    best_bssid = status.bssid or "desconocido"
+    assoc_bssid = status.bssid or "desconocido"
+    assoc_signal = status.signal_pct if status.signal_pct is not None else 0
 
     try:
-        bssids = scan_bssids_for_ssid(ssid)
+        scanned = scan_bssids_for_ssid(ssid)
     except WifiScannerError:
-        bssids = []
+        scanned = []
 
-    if bssids:
-        scan_bssid, scan_signal = max(bssids, key=lambda item: item[1])
-        if scan_signal > best_signal:
-            best_signal = scan_signal
-            best_bssid = scan_bssid
+    by_key: dict[str, tuple[str, int]] = {}
+    for bssid, pct in scanned:
+        key = bssid.casefold()
+        prev = by_key.get(key)
+        if prev is None or pct > prev[1]:
+            by_key[key] = (bssid, pct)
 
-    return WifiSample(ssid=ssid, signal_pct=best_signal, bssid=best_bssid)
+    # Incorporar señal de la interfaz asociada (puede ser más reciente)
+    if assoc_bssid and assoc_bssid.casefold() not in {"", "desconocido", "sin-señal"}:
+        key = assoc_bssid.casefold()
+        if key in by_key:
+            listed_bssid, listed_pct = by_key[key]
+            assoc_signal = max(listed_pct, assoc_signal)
+            by_key[key] = (listed_bssid, assoc_signal)
+        else:
+            by_key[key] = (assoc_bssid, assoc_signal)
+
+    assoc_key = assoc_bssid.casefold()
+    nearby = tuple(
+        ApSignal(bssid=b, signal_pct=p)
+        for b, p in sorted(
+            by_key.values(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        if b.casefold() != assoc_key
+    )
+
+    return WifiSample(
+        ssid=ssid,
+        signal_pct=assoc_signal,
+        bssid=assoc_bssid,
+        nearby_aps=nearby,
+    )

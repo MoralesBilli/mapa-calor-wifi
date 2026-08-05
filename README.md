@@ -32,26 +32,40 @@ python main.py
 4. Haz **clic** donde estés para medir la señal.
 5. Repite en varios puntos (recomendado: 8–10 o más).
 6. Pulsa **h** para generar el mapa de calor (semitransparente sobre el plano).
-7. Pulsa **s** para guardar como **imagen PNG** en `data/`.
+7. Pulsa **g** para **guardar el proyecto** (`.wifimap`) y poder continuar después.
+8. Pulsa **o** para **abrir un proyecto** guardado y seguir midiendo.
+9. Pulsa **s** para exportar **imágenes PNG** en `data/` (no sustituye al proyecto).
 
 ### Teclas
 
 | Tecla | Acción |
 |-------|--------|
-| Clic | Medir señal en esa posición |
+| Clic | Medir señal; si hay un punto cerca, muestra su info (sin re-medir) |
+| Clic derecho | Quitar el punto cercano |
+| `a` | Marcar ubicación del AP conectado |
 | `p` | Cargar imagen del plano del lugar |
 | `c` | Quitar el plano (volver al lienzo vacío) |
 | `e` | Expandir ancho y alto (+5 m al total) |
 | `w` | Expandir solo ancho (+5 m al total) |
 | `r` | Expandir solo alto (+5 m al total) |
 | `h` | Generar / actualizar heatmap |
-| `s` | Guardar imagen PNG |
+| `g` | Guardar proyecto (`.wifimap`); si ya existe, lo sobrescribe |
+| `Ctrl+g` | Guardar proyecto como (elegir otro archivo) |
+| `o` | Abrir proyecto guardado |
+| `s` | Exportar imágenes PNG |
 | `z` | Deshacer último punto |
 | `q` | Salir |
 
+### Proyectos (continuar trabajo)
+
+- Archivos en `data/proyectos/` con extensión **`.wifimap`**.
+- Incluyen puntos de medición, tamaño del lienzo, AP marcados, si el heatmap estaba visible y la referencia al plano (ruta de la imagen + escala).
+- Al abrir un proyecto puedes seguir haciendo clic para medir; el estado WiFi actual se lee del sistema (no del archivo).
+
 ## Notas
 
-- La señal se toma como el **máximo %** entre todos los BSSID del SSID actual.
+- En cada medición se guarda la señal del **AP conectado** y, si aparecen, la de **otros BSSID del mismo SSID** (repetidores cercanos). Al hacer clic en un punto se muestran ambos.
+- El mapa de calor usa la señal del AP al que estabas asociado en cada punto.
 - Si el WiFi está **sin red conectada** (aunque el adaptador siga encendido) o se pierde la asociación, el punto se marca **0% en violeta**. No se usa el escaneo de redes “visibles” en ese caso (evita falsos 90%).
 - Al cargar un plano se pregunta **ancho** (por defecto 50 m) y **largo** (por defecto 96.90 m). La imagen se ajusta a ese rectángulo en metros.
 - Con menos de 8 puntos el heatmap es preliminar.

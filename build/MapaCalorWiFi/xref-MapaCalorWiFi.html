@@ -26,6 +26,7 @@ imports:
  &#8226;   <a href="#collections">collections</a>
  &#8226;   <a href="#collections.abc">collections.abc</a>
  &#8226;   <a href="#copyreg">copyreg</a>
+ &#8226;   <a href="#dataclasses">dataclasses</a>
  &#8226;   <a href="#datetime">datetime</a>
  &#8226;   <a href="#encodings">encodings</a>
  &#8226;   <a href="#encodings.aliases">encodings.aliases</a>
@@ -162,12 +163,14 @@ imports:
  &#8226;   <a href="#matplotlib.collections">matplotlib.collections</a>
  &#8226;   <a href="#matplotlib.image">matplotlib.image</a>
  &#8226;   <a href="#matplotlib.pyplot">matplotlib.pyplot</a>
+ &#8226;   <a href="#matplotlib.text">matplotlib.text</a>
  &#8226;   <a href="#ntpath">ntpath</a>
  &#8226;   <a href="#numpy">numpy</a>
  &#8226;   <a href="#operator">operator</a>
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#pathlib">pathlib</a>
  &#8226;   <a href="#posixpath">posixpath</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#pyi_rth__tkinter.py">pyi_rth__tkinter.py</a>
  &#8226;   <a href="#pyi_rth_inspect.py">pyi_rth_inspect.py</a>
  &#8226;   <a href="#pyi_rth_mplconfig.py">pyi_rth_mplconfig.py</a>
@@ -185,7 +188,9 @@ imports:
  &#8226;   <a href="#stat">stat</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
  &#8226;   <a href="#warnings">warnings</a>
@@ -2879,6 +2884,7 @@ imported by:
  &#8226;   <a href="#matplotlib.font_manager">matplotlib.font_manager</a>
  &#8226;   <a href="#matplotlib.pyplot">matplotlib.pyplot</a>
  &#8226;   <a href="#packaging.version">packaging.version</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#pydoc">pydoc</a>
  &#8226;   <a href="#pyparsing.actions">pyparsing.actions</a>
  &#8226;   <a href="#pyparsing.core">pyparsing.core</a>
@@ -6432,10 +6438,12 @@ imports:
   <div class="import">
 imported by:
     <a href="#heatmap">heatmap</a>
+ &#8226;   <a href="#main.py">main.py</a>
  &#8226;   <a href="#matplotlib.dviread">matplotlib.dviread</a>
  &#8226;   <a href="#matplotlib.font_manager">matplotlib.font_manager</a>
  &#8226;   <a href="#matplotlib.rcsetup">matplotlib.rcsetup</a>
  &#8226;   <a href="#pprint">pprint</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#pyparsing.diagram">pyparsing.diagram</a>
  &#8226;   <a href="#scipy._external.pyprima.cobyla.cobyla">scipy._external.pyprima.cobyla.cobyla</a>
  &#8226;   <a href="#scipy._lib._array_api">scipy._lib._array_api</a>
@@ -10734,6 +10742,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#main.py">main.py</a>
+ &#8226;   <a href="#project_io">project_io</a>
 
   </div>
 
@@ -10921,6 +10930,7 @@ imports:
  &#8226;   <a href="#importlib">importlib</a>
  &#8226;   <a href="#importlib._bootstrap">importlib._bootstrap</a>
  &#8226;   <a href="#importlib._bootstrap_external">importlib._bootstrap_external</a>
+ &#8226;   <a href="#importlib.machinery">importlib.machinery</a>
  &#8226;   <a href="#sys">sys</a>
  &#8226;   <a href="#warnings">warnings</a>
 
@@ -11067,7 +11077,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#importlib.abc">importlib.abc</a>
+    <a href="#importlib">importlib</a>
+ &#8226;   <a href="#importlib.abc">importlib.abc</a>
  &#8226;   <a href="#inspect">inspect</a>
  &#8226;   <a href="#pkgutil">pkgutil</a>
  &#8226;   <a href="#py_compile">py_compile</a>
@@ -11835,6 +11846,7 @@ imported by:
  &#8226;   <a href="#matplotlib.font_manager">matplotlib.font_manager</a>
  &#8226;   <a href="#numpy.__config__">numpy.__config__</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#scipy.__config__">scipy.__config__</a>
 
   </div>
@@ -15249,7 +15261,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#matplotlib.axes._axes">matplotlib.axes._axes</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#matplotlib.axes._axes">matplotlib.axes._axes</a>
  &#8226;   <a href="#matplotlib.axes._base">matplotlib.axes._base</a>
  &#8226;   <a href="#matplotlib.axis">matplotlib.axis</a>
  &#8226;   <a href="#matplotlib.backend_bases">matplotlib.backend_bases</a>
@@ -24284,7 +24297,9 @@ imported by:
  &#8226;   <a href="#numpy.f2py.rules">numpy.f2py.rules</a>
  &#8226;   <a href="#numpy.testing._private.extbuild">numpy.testing._private.extbuild</a>
  &#8226;   <a href="#numpy.testing._private.utils">numpy.testing._private.utils</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#pyparsing.core">pyparsing.core</a>
+ &#8226;   <a href="#wifi_scanner">wifi_scanner</a>
  &#8226;   <a href="#zipfile._path">zipfile._path</a>
 
   </div>
@@ -24530,6 +24545,27 @@ imported by:
  &#8226;   <a href="#pyparsing.results">pyparsing.results</a>
  &#8226;   <a href="#sysconfig">sysconfig</a>
  &#8226;   <a href="#unittest.case">unittest.case</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="project_io"></a>
+  <a target="code" href="///C:/Users/PracticanteIT/Desktop/mapa-calor-wifi/project_io.py" type="text/plain"><tt>project_io</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#dataclasses">dataclasses</a>
+ &#8226;   <a href="#heatmap">heatmap</a>
+ &#8226;   <a href="#json">json</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
 
   </div>
 
@@ -40186,6 +40222,7 @@ imported by:
  &#8226;   <a href="#pydoc">pydoc</a>
  &#8226;   <a href="#urllib.request">urllib.request</a>
  &#8226;   <a href="#urllib.response">urllib.response</a>
+ &#8226;   <a href="#wifi_scanner">wifi_scanner</a>
 
   </div>
 
@@ -40424,6 +40461,7 @@ imports:
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
 
@@ -40439,6 +40477,7 @@ imported by:
  &#8226;   <a href="#tkinter.font">tkinter.font</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
 
   </div>
 
@@ -40545,7 +40584,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#matplotlib.backends._backend_tk">matplotlib.backends._backend_tk</a>
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#matplotlib.backends._backend_tk">matplotlib.backends._backend_tk</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
 
@@ -40568,6 +40608,23 @@ imported by:
  &#8226;   <a href="#matplotlib.backends._backend_tk">matplotlib.backends._backend_tk</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkinter.ttk"></a>
+  <a target="code" href="///C:/Users/PracticanteIT/AppData/Local/Programs/Python/Python312/Lib/tkinter/ttk.py" type="text/plain"><tt>tkinter.ttk</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#tkinter">tkinter</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main.py">main.py</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
 
   </div>
 
@@ -40975,6 +41032,7 @@ imported by:
  &#8226;   <a href="#numpy.random.mtrand">numpy.random.mtrand</a>
  &#8226;   <a href="#packaging.version">packaging.version</a>
  &#8226;   <a href="#pdb">pdb</a>
+ &#8226;   <a href="#project_io">project_io</a>
  &#8226;   <a href="#pyparsing">pyparsing</a>
  &#8226;   <a href="#pyparsing.actions">pyparsing.actions</a>
  &#8226;   <a href="#pyparsing.core">pyparsing.core</a>
@@ -41872,9 +41930,12 @@ imported by:
 imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#dataclasses">dataclasses</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
  &#8226;   <a href="#re">re</a>
  &#8226;   <a href="#subprocess">subprocess</a>
+ &#8226;   <a href="#tempfile">tempfile</a>
  &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#xml.sax.saxutils">xml.sax.saxutils</a>
 
   </div>
   <div class="import">
@@ -42194,7 +42255,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#xml.sax">xml.sax</a>
+    <a href="#wifi_scanner">wifi_scanner</a>
+ &#8226;   <a href="#xml.sax">xml.sax</a>
  &#8226;   <a href="#xml.sax.expatreader">xml.sax.expatreader</a>
  &#8226;   <a href="#xml.sax.xmlreader">xml.sax.xmlreader</a>
 
