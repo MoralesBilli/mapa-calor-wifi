@@ -1,0 +1,739 @@
+{
+  "format": "wifi-heatmap-project",
+  "version": 2,
+  "canvas": {
+    "width_m": 159.5,
+    "height_m": 96.0
+  },
+  "floor_plan": {
+    "path": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "path_absolute": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "width_m": 159.5,
+    "length_m": 96.0
+  },
+  "samples": [
+    {
+      "x_m": -32.789,
+      "y_m": -2.39,
+      "signal_pct": 89.0,
+      "bssid": "78:45:58:b5:61:2f",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:11:03",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 99,
+          "channel": null,
+          "band": ""
+        },
+        {
+          "bssid": "de:b3:70:ca:9d:18",
+          "signal_pct": 82,
+          "channel": null,
+          "band": ""
+        },
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 46,
+          "channel": null,
+          "band": ""
+        }
+      ],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": 11.096,
+      "y_m": -8.61,
+      "signal_pct": 82.0,
+      "bssid": "f4:92:bf:17:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:15:47",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:18:1c:db",
+          "signal_pct": 84,
+          "channel": null,
+          "band": ""
+        },
+        {
+          "bssid": "de:b3:70:ca:9d:18",
+          "signal_pct": 67,
+          "channel": null,
+          "band": ""
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 40,
+          "channel": null,
+          "band": ""
+        }
+      ],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": -64.374,
+      "y_m": -30.405,
+      "signal_pct": 72,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:39:42",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 58,
+          "channel": 112,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 46,
+          "channel": 42,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "de:b3:70:ca:9d:18",
+          "signal_pct": 35,
+          "channel": 203,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -52.729,
+      "y_m": -31.375,
+      "signal_pct": 87,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:40:04",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 58,
+          "channel": 112,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 46,
+          "channel": 42,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "de:b3:70:ca:9d:18",
+          "signal_pct": 35,
+          "channel": 203,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -29.761,
+      "y_m": -31.375,
+      "signal_pct": 38,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:40:48",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 50,
+          "channel": 26,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 35,
+          "channel": 86,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -32.565,
+      "y_m": -46.364,
+      "signal_pct": 55,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:41:13",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 50,
+          "channel": 26,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 35,
+          "channel": 86,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -30.947,
+      "y_m": -39.57,
+      "signal_pct": 59,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:41:51",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 50,
+          "channel": 26,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 35,
+          "channel": 86,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -42.485,
+      "y_m": -38.169,
+      "signal_pct": 81,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:42:06",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 50,
+          "channel": 26,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 35,
+          "channel": 86,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -52.944,
+      "y_m": -45.393,
+      "signal_pct": 83,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:42:23",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 50,
+          "channel": 26,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 35,
+          "channel": 86,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -70.763,
+      "y_m": -44.796,
+      "signal_pct": 84,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:43:44",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -52.799,
+      "y_m": -38.013,
+      "signal_pct": 85,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:44:05",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -71.13,
+      "y_m": -39.755,
+      "signal_pct": 83,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:44:39",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -69.572,
+      "y_m": -22.89,
+      "signal_pct": 82,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:44:57",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -64.622,
+      "y_m": -15.008,
+      "signal_pct": 85,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:45:12",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -77.947,
+      "y_m": -14.67,
+      "signal_pct": 50,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:46:01",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -78.327,
+      "y_m": -1.857,
+      "signal_pct": 57,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:46:18",
+      "nearby_aps": [],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -68.432,
+      "y_m": -8.2,
+      "signal_pct": 78,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:46:52",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 40,
+          "channel": 53,
+          "band": "5 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -58.03,
+      "y_m": -8.834,
+      "signal_pct": 70,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:47:09",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 40,
+          "channel": 53,
+          "band": "5 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -49.277,
+      "y_m": -8.581,
+      "signal_pct": 78,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:47:29",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 40,
+          "channel": 53,
+          "band": "5 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -38.748,
+      "y_m": -9.849,
+      "signal_pct": 81,
+      "bssid": "78:45:58:b5:61:30",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:48:14",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 40,
+          "channel": 53,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "70:a7:41:81:6d:e0",
+          "signal_pct": 35,
+          "channel": 135,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 1,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -62.343,
+      "y_m": -27.609,
+      "signal_pct": 92,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:49:07",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 67,
+          "channel": 139,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 65,
+          "channel": 44,
+          "band": "5 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -62.597,
+      "y_m": -18.602,
+      "signal_pct": 95,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:49:22",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 67,
+          "channel": 139,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 65,
+          "channel": 44,
+          "band": "5 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -53.336,
+      "y_m": -27.736,
+      "signal_pct": 93,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:49:39",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 88,
+          "channel": 31,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 67,
+          "channel": 139,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -58.157,
+      "y_m": -26.975,
+      "signal_pct": 95,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:49:59",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 88,
+          "channel": 31,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 67,
+          "channel": 139,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -57.776,
+      "y_m": -21.774,
+      "signal_pct": 99,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:50:11",
+      "nearby_aps": [
+        {
+          "bssid": "70:a7:41:82:6d:e0",
+          "signal_pct": 88,
+          "channel": 31,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 67,
+          "channel": 139,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 11,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": -4.546,
+      "y_m": -3.346,
+      "signal_pct": 55,
+      "bssid": "78:45:58:b5:61:30",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:56:24",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:18:1c:db",
+          "signal_pct": 78,
+          "channel": 16,
+          "band": "5 GHz"
+        },
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 72,
+          "channel": 101,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 1,
+      "band": "2.4 GHz"
+    },
+    {
+      "x_m": 0.42,
+      "y_m": 2.017,
+      "signal_pct": 60,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:56:54",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 6.711,
+      "y_m": -6.194,
+      "signal_pct": 83,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:57:23",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 14.261,
+      "y_m": -0.168,
+      "signal_pct": 81,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:57:40",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 28.432,
+      "y_m": 2.017,
+      "signal_pct": 40,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:58:06",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 26.578,
+      "y_m": -6.393,
+      "signal_pct": 35,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:58:22",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 25.518,
+      "y_m": -15.332,
+      "signal_pct": 35,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:58:34",
+      "nearby_aps": [
+        {
+          "bssid": "f4:92:bf:17:1c:db",
+          "signal_pct": 86,
+          "channel": 198,
+          "band": "2.4 GHz"
+        },
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 72,
+          "channel": 170,
+          "band": "2.4 GHz"
+        }
+      ],
+      "channel": 48,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": 1.307,
+      "y_m": -9.727,
+      "signal_pct": 83,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T13:59:26",
+      "nearby_aps": [],
+      "channel": 48,
+      "band": "5 GHz"
+    }
+  ],
+  "ap_locations": [
+    {
+      "x_m": -32.01,
+      "y_m": -2.363,
+      "bssid": "78:45:58:b5:61:2f",
+      "ssid": "PDM-2025"
+    },
+    {
+      "x_m": 0.846,
+      "y_m": -9.497,
+      "bssid": "f4:92:bf:17:1c:db",
+      "ssid": "PDM-2025"
+    },
+    {
+      "x_m": -58.012,
+      "y_m": -27.817,
+      "bssid": "70:a7:41:81:6d:e0",
+      "ssid": "PDM-2025"
+    },
+    {
+      "x_m": 1.414,
+      "y_m": -9.836,
+      "bssid": "f4:92:bf:18:1c:db",
+      "ssid": "PDM-2025"
+    }
+  ],
+  "view": {
+    "heatmap_visible": true
+  }
+}

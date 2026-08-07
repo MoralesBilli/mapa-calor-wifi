@@ -1,4 +1,4 @@
-"""Interpolación y dibujo del mapa de calor WiFi."""
+
 
 from __future__ import annotations
 
@@ -12,10 +12,16 @@ from matplotlib.colorbar import Colorbar
 from matplotlib.image import AxesImage
 from scipy.interpolate import RBFInterpolator, griddata
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import cKDTree
 
 
 MIN_POINTS_FOR_HEATMAP = 8
 GRID_RESOLUTION = 220
+# Radio de influencia alrededor de cada medición (zonas sin datos → 0% / guinda)
+INFLUENCE_NN_FACTOR = 2.2
+INFLUENCE_MIN_M = 4.0
+INFLUENCE_MAX_M = 14.0
+INFLUENCE_INNER_RATIO = 0.55
 
 
 @dataclass
@@ -24,6 +30,8 @@ class NearbyApReading:
 
     bssid: str
     signal_pct: int
+    channel: int | None = None
+    band: str = ""
 
 
 @dataclass
@@ -35,6 +43,8 @@ class SamplePoint:
     ssid: str
     timestamp: str
     nearby_aps: list[NearbyApReading] = field(default_factory=list)
+    channel: int | None = None
+    band: str = ""  # "2.4 GHz", "5 GHz", "6 GHz"
 
 
 def bounds_from_size(width_m: float, height_m: float) -> tuple[float, float, float, float]:
@@ -56,6 +66,23 @@ def _mean_neighbor_distance(points: np.ndarray) -> float:
     return float(max(np.mean(dists), 0.5))
 
 
+def _influence_radius_m(nn: float) -> float:
+    """Radio máximo (m) donde la interpolación sigue siendo válida."""
+    return float(np.clip(nn * INFLUENCE_NN_FACTOR, INFLUENCE_MIN_M, INFLUENCE_MAX_M))
+
+
+def _unmeasured_weight(dists: np.ndarray, influence_m: float) -> np.ndarray:
+    """
+    1 cerca de mediciones, 0 lejos (zona no medida → guinda / 0%).
+    Decaimiento suave entre inner y influence_m.
+    """
+    inner = influence_m * INFLUENCE_INNER_RATIO
+    span = max(influence_m - inner, 1e-6)
+    t = np.clip((dists - inner) / span, 0.0, 1.0)
+    # smoothstep: borde limpio sin escalón duro
+    return 1.0 - (t * t * (3.0 - 2.0 * t))
+
+
 def interpolate_signal(
     samples: list[SamplePoint],
     width_m: float,
@@ -63,7 +90,8 @@ def interpolate_signal(
     resolution: int = GRID_RESOLUTION,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """
-    Interpola signal_pct con degradados suaves sobre todo el plano.
+    Interpola signal_pct con degradados suaves cerca de las mediciones.
+    Fuera del radio de influencia → 0% (guinda, sin medición).
     Devuelve (X, Y, Z) o None si no hay puntos suficientes.
     """
     if len(samples) < 3:
@@ -80,6 +108,7 @@ def interpolate_signal(
 
     span = max(width_m, height_m)
     nn = _mean_neighbor_distance(points)
+    influence_m = _influence_radius_m(nn)
     # Thin-plate + smoothing ligero: degradados sin aplanar el mapa
     smoothing = max(1.0, nn * 0.35)
 
@@ -117,6 +146,16 @@ def interpolate_signal(
     sigma_m = max(span / 45.0, nn * 0.25)
     sigma_px = max(0.8, sigma_m / max(cell_m, 1e-6))
     grid_z = gaussian_filter(grid_z, sigma=sigma_px, mode="nearest")
+
+    # Zonas lejos de cualquier medición → 0% (guinda), no inventar cobertura
+    tree = cKDTree(points)
+    nearest_dist, _ = tree.query(flat, k=1)
+    weight = _unmeasured_weight(
+        nearest_dist.reshape(grid_x.shape),
+        influence_m,
+    )
+    grid_z = grid_z * weight
+
     grid_z = np.clip(grid_z, 0.0, 100.0)
     return grid_x, grid_y, grid_z
 
@@ -170,7 +209,10 @@ def draw_heatmap(
             f"Recomendado: ≥ {MIN_POINTS_FOR_HEATMAP}."
         )
     else:
-        status = f"Heatmap con {len(samples)} puntos (degradado suave)."
+        status = (
+            f"Heatmap con {len(samples)} puntos "
+            "(zonas sin medición cercana en guinda / 0%)."
+        )
 
     return image, colorbar, status
 

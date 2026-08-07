@@ -1,0 +1,24 @@
+{
+  "format": "wifi-heatmap-project",
+  "version": 2,
+  "canvas": {
+    "width_m": 30.0,
+    "height_m": 30.0
+  },
+  "floor_plan": null,
+  "samples": [
+    {
+      "x_m": 5.119,
+      "y_m": 6.262,
+      "signal_pct": 86,
+      "bssid": "78:45:58:b5:61:2f",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T11:39:11",
+      "nearby_aps": []
+    }
+  ],
+  "ap_locations": [],
+  "view": {
+    "heatmap_visible": false
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "format": "wifi-heatmap-project",
+  "version": 2,
+  "canvas": {
+    "width_m": 159.5,
+    "height_m": 96.0
+  },
+  "floor_plan": {
+    "path": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "path_absolute": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "width_m": 159.5,
+    "length_m": 96.0
+  },
+  "samples": [
+    {
+      "x_m": -32.852,
+      "y_m": -1.905,
+      "signal_pct": 86.0,
+      "bssid": "78:45:58:b5:61:2f",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T11:23:37",
+      "nearby_aps": []
+    },
+    {
+      "x_m": -15.95,
+      "y_m": -16.472,
+      "signal_pct": 74,
+      "bssid": "de:b3:70:ca:9d:18",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T12:21:54",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 99
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 87
+        }
+      ]
+    },
+    {
+      "x_m": 30.45,
+      "y_m": -21.982,
+      "signal_pct": 74,
+      "bssid": "de:b3:70:ca:9d:18",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T12:21:56",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 99
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 87
+        }
+      ]
+    },
+    {
+      "x_m": 46.11,
+      "y_m": 22.678,
+      "signal_pct": 74,
+      "bssid": "de:b3:70:ca:9d:18",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-05T12:21:58",
+      "nearby_aps": [
+        {
+          "bssid": "78:45:58:b5:61:30",
+          "signal_pct": 99
+        },
+        {
+          "bssid": "78:45:58:b5:61:2f",
+          "signal_pct": 87
+        }
+      ]
+    }
+  ],
+  "ap_locations": [],
+  "view": {
+    "heatmap_visible": false
+  }
+}

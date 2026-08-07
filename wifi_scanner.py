@@ -21,6 +21,19 @@ class ApSignal:
 
     bssid: str
     signal_pct: int
+    channel: int | None = None
+    band: str = ""  # "2.4 GHz", "5 GHz", "6 GHz" o ""
+
+
+@dataclass(frozen=True)
+class ScannedBssid:
+    """BSSID visible del SSID actual, con canal/banda si netsh lo reporta."""
+
+    bssid: str
+    signal_pct: int
+    channel: int | None = None
+    band: str = ""
+    radio_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -28,6 +41,8 @@ class WifiSample:
     ssid: str
     signal_pct: int  # señal del AP asociado (conectado)
     bssid: str  # BSSID del AP asociado
+    channel: int | None = None
+    band: str = ""
     # Otros BSSID del mismo SSID vistos en el escaneo (menor u otra señal)
     nearby_aps: tuple[ApSignal, ...] = ()
 
@@ -39,6 +54,8 @@ class InterfaceStatus:
     ssid: str | None
     signal_pct: int | None
     bssid: str
+    channel: int | None = None
+    band: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,10 +72,49 @@ _BSSID_KEYS = ("BSSID", "Dirección física", "Direccion fisica", "AP BSSID")
 _STATE_KEYS = ("State", "Estado")
 _AUTH_KEYS = ("Authentication", "Autenticación", "Autenticacion")
 _CIPHER_KEYS = ("Cipher", "Cifrado", "Encryption", "Cifrado")
+_CHANNEL_KEYS = ("Channel", "Canal")
+_BAND_KEYS = ("Band", "Banda")
+_RADIO_KEYS = ("Radio type", "Tipo de radio")
 _CONNECTED_STATES = frozenset(
     {"connected", "conectado", "connecting", "conectando"}
 )
 _OPEN_AUTH = frozenset({"open", "abierta", "abierto"})
+# Evita el parpadeo de CMD al lanzar netsh desde un .exe sin consola (PyInstaller).
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def _parse_channel(value: str) -> int | None:
+    match = re.search(r"(\d+)", value)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def band_from_channel(channel: int | None, band_hint: str = "") -> str:
+    """Deriva 2.4 / 5 / 6 GHz a partir del canal o de un texto de banda de netsh."""
+    hint = (band_hint or "").casefold()
+    if "6" in hint and "ghz" in hint:
+        return "6 GHz"
+    if "5" in hint and "ghz" in hint:
+        return "5 GHz"
+    if "2.4" in hint or "2,4" in hint or ("2" in hint and "ghz" in hint):
+        return "2.4 GHz"
+
+    if channel is None:
+        return ""
+    # Canales Wi‑Fi típicos en reportes de Windows
+    if 1 <= channel <= 14:
+        return "2.4 GHz"
+    if 15 <= channel <= 196:
+        return "5 GHz"
+    if channel >= 197:
+        return "6 GHz"
+    return ""
+
+
+def normalize_bssid(bssid: str) -> str:
+    """Unifica separadores a ':' y minúsculas para comparar."""
+    return bssid.replace("-", ":").casefold().strip()
 
 
 def _run_netsh(args: list[str]) -> str:
@@ -70,6 +126,7 @@ def _run_netsh(args: list[str]) -> str:
             encoding="utf-8",
             errors="replace",
             check=False,
+            creationflags=_CREATE_NO_WINDOW,
         )
     except FileNotFoundError as exc:
         raise WifiScannerError("No se encontró 'netsh'. ¿Estás en Windows?") from exc
@@ -124,6 +181,8 @@ def get_interface_status() -> InterfaceStatus:
     ssid: str | None = None
     signal: int | None = None
     bssid = ""
+    channel: int | None = None
+    band_hint = ""
 
     for key, value in _parse_kv_lines(output):
         key_norm = key.casefold().strip()
@@ -136,6 +195,10 @@ def get_interface_status() -> InterfaceStatus:
             signal = _parse_signal_pct(value)
         elif _key_matches(key, _BSSID_KEYS) or key_norm in {"bssid", "ap bssid"}:
             bssid = value
+        elif _key_matches(key, _CHANNEL_KEYS):
+            channel = _parse_channel(value)
+        elif _key_matches(key, _BAND_KEYS):
+            band_hint = value
 
     connected = state.casefold() in _CONNECTED_STATES and bool(ssid)
     return InterfaceStatus(
@@ -144,6 +207,8 @@ def get_interface_status() -> InterfaceStatus:
         ssid=ssid,
         signal_pct=signal,
         bssid=bssid,
+        channel=channel,
+        band=band_from_channel(channel, band_hint),
     )
 
 
@@ -433,18 +498,45 @@ def connect_to_network(
                 pass
 
 
-def scan_bssids_for_ssid(ssid: str) -> list[tuple[str, int]]:
+def scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
     """
-    Escanea redes visibles y devuelve lista de (bssid, signal_pct)
-    para entradas con el SSID indicado.
-    Solo debe usarse cuando la interfaz está conectada a esa red.
+    Escanea redes visibles y devuelve BSSID del SSID indicado
+    con señal, canal y banda (2.4 / 5 / 6 GHz) cuando netsh lo reporta.
     """
     output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
     lines = output.splitlines()
 
-    results: list[tuple[str, int]] = []
+    results: list[ScannedBssid] = []
     current_ssid: str | None = None
     current_bssid: str | None = None
+    current_signal: int | None = None
+    current_channel: int | None = None
+    current_band_hint = ""
+    current_radio = ""
+
+    def _flush_bssid() -> None:
+        nonlocal current_bssid, current_signal, current_channel
+        nonlocal current_band_hint, current_radio
+        if (
+            current_ssid
+            and current_ssid.casefold() == ssid.casefold()
+            and current_bssid
+            and current_signal is not None
+        ):
+            results.append(
+                ScannedBssid(
+                    bssid=current_bssid,
+                    signal_pct=current_signal,
+                    channel=current_channel,
+                    band=band_from_channel(current_channel, current_band_hint),
+                    radio_type=current_radio,
+                )
+            )
+        current_bssid = None
+        current_signal = None
+        current_channel = None
+        current_band_hint = ""
+        current_radio = ""
 
     for raw in lines:
         line = raw.strip()
@@ -460,38 +552,54 @@ def scan_bssids_for_ssid(ssid: str) -> list[tuple[str, int]]:
             and "bssid" not in key_norm
             and re.search(r"ssid\s*\d*", key_norm)
         ):
+            _flush_bssid()
             current_ssid = value
-            current_bssid = None
             continue
 
         if key_norm == "ssid" or key_norm.endswith(" de ssid"):
+            _flush_bssid()
             current_ssid = value
-            current_bssid = None
             continue
 
         if _key_matches(key, _BSSID_KEYS) or re.match(r"^bssid\s*\d*$", key_norm):
+            _flush_bssid()
             current_bssid = value
             continue
 
         if _key_matches(key, _SIGNAL_KEYS):
-            if (
-                current_ssid
-                and current_ssid.casefold() == ssid.casefold()
-                and current_bssid
-            ):
-                pct = _parse_signal_pct(value)
-                if pct is not None:
-                    results.append((current_bssid, pct))
+            pct = _parse_signal_pct(value)
+            if pct is not None:
+                current_signal = pct
             continue
 
-    # Deduplicar por BSSID (quedarse con la mejor señal)
-    best: dict[str, tuple[str, int]] = {}
-    for bssid, pct in results:
-        key = bssid.casefold()
+        if _key_matches(key, _CHANNEL_KEYS):
+            current_channel = _parse_channel(value)
+            continue
+
+        if _key_matches(key, _BAND_KEYS):
+            current_band_hint = value
+            continue
+
+        if _key_matches(key, _RADIO_KEYS):
+            current_radio = value
+            continue
+
+    _flush_bssid()
+
+    # Deduplicar por BSSID normalizado (mejor señal; conservar canal/banda)
+    best: dict[str, ScannedBssid] = {}
+    for item in results:
+        key = normalize_bssid(item.bssid)
         prev = best.get(key)
-        if prev is None or pct > prev[1]:
-            best[key] = (bssid, pct)
-    return sorted(best.values(), key=lambda item: (-item[1], item[0].casefold()))
+        if prev is None or item.signal_pct > prev.signal_pct:
+            best[key] = item
+        elif prev is not None and item.signal_pct == prev.signal_pct:
+            if not prev.band and item.band:
+                best[key] = item
+    return sorted(
+        best.values(),
+        key=lambda item: (-item.signal_pct, normalize_bssid(item.bssid)),
+    )
 
 
 def measure_current_network(
@@ -531,42 +639,66 @@ def measure_current_network(
 
     assoc_bssid = status.bssid or "desconocido"
     assoc_signal = status.signal_pct if status.signal_pct is not None else 0
+    assoc_channel = status.channel
+    assoc_band = status.band
 
     try:
         scanned = scan_bssids_for_ssid(ssid)
     except WifiScannerError:
         scanned = []
 
-    by_key: dict[str, tuple[str, int]] = {}
-    for bssid, pct in scanned:
-        key = bssid.casefold()
+    by_key: dict[str, ScannedBssid] = {}
+    for item in scanned:
+        key = normalize_bssid(item.bssid)
         prev = by_key.get(key)
-        if prev is None or pct > prev[1]:
-            by_key[key] = (bssid, pct)
+        if prev is None or item.signal_pct > prev.signal_pct:
+            by_key[key] = item
 
     # Incorporar señal de la interfaz asociada (puede ser más reciente)
-    if assoc_bssid and assoc_bssid.casefold() not in {"", "desconocido", "sin-señal"}:
-        key = assoc_bssid.casefold()
+    if normalize_bssid(assoc_bssid) not in {"", "desconocido", "sin-señal"}:
+        key = normalize_bssid(assoc_bssid)
         if key in by_key:
-            listed_bssid, listed_pct = by_key[key]
-            assoc_signal = max(listed_pct, assoc_signal)
-            by_key[key] = (listed_bssid, assoc_signal)
+            listed = by_key[key]
+            assoc_signal = max(listed.signal_pct, assoc_signal)
+            if assoc_channel is None:
+                assoc_channel = listed.channel
+            if not assoc_band:
+                assoc_band = listed.band
+            by_key[key] = ScannedBssid(
+                bssid=listed.bssid,
+                signal_pct=assoc_signal,
+                channel=assoc_channel if assoc_channel is not None else listed.channel,
+                band=assoc_band or listed.band,
+                radio_type=listed.radio_type,
+            )
         else:
-            by_key[key] = (assoc_bssid, assoc_signal)
+            by_key[key] = ScannedBssid(
+                bssid=assoc_bssid,
+                signal_pct=assoc_signal,
+                channel=assoc_channel,
+                band=assoc_band,
+            )
 
-    assoc_key = assoc_bssid.casefold()
+    assoc_key = normalize_bssid(assoc_bssid)
     nearby = tuple(
-        ApSignal(bssid=b, signal_pct=p)
-        for b, p in sorted(
-            by_key.values(),
-            key=lambda item: (-item[1], item[0].casefold()),
+        ApSignal(
+            bssid=item.bssid,
+            signal_pct=item.signal_pct,
+            channel=item.channel,
+            band=item.band,
         )
-        if b.casefold() != assoc_key
+        for item in sorted(
+            by_key.values(),
+            key=lambda it: (-it.signal_pct, normalize_bssid(it.bssid)),
+        )
+        if normalize_bssid(item.bssid) != assoc_key
     )
 
     return WifiSample(
         ssid=ssid,
         signal_pct=assoc_signal,
         bssid=assoc_bssid,
+        channel=assoc_channel,
+        band=assoc_band,
         nearby_aps=nearby,
     )

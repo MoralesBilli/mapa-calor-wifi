@@ -73,7 +73,7 @@
  [],
  False,
  False,
- 1785953451,
+ 1785969713,
  [('runw.exe',
    'C:\\Users\\PracticanteIT\\Desktop\\mapa-calor-wifi\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
    'EXECUTABLE')],

@@ -141,6 +141,15 @@ def load_project_file(path: Path) -> dict[str, Any]:
     return data
 
 
+def _optional_channel(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _nearby_aps_from_item(item: dict[str, Any]) -> list[NearbyApReading]:
     raw = item.get("nearby_aps") or []
     if not isinstance(raw, list):
@@ -154,6 +163,8 @@ def _nearby_aps_from_item(item: dict[str, Any]) -> list[NearbyApReading]:
                 NearbyApReading(
                     bssid=str(entry.get("bssid", "")),
                     signal_pct=int(entry["signal_pct"]),
+                    channel=_optional_channel(entry.get("channel")),
+                    band=str(entry.get("band", "") or ""),
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -180,6 +191,8 @@ def samples_from_project(data: dict[str, Any]) -> list[SamplePoint]:
                     ssid=str(item.get("ssid", "")),
                     timestamp=str(item.get("timestamp", "")),
                     nearby_aps=_nearby_aps_from_item(item),
+                    channel=_optional_channel(item.get("channel")),
+                    band=str(item.get("band", "") or ""),
                 )
             )
         except (KeyError, TypeError, ValueError) as exc:

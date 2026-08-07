@@ -41,13 +41,13 @@ python main.py
 | Tecla | Acción |
 |-------|--------|
 | Clic | Medir señal; si hay un punto cerca, muestra su info (sin re-medir) |
-| Clic derecho | Quitar el punto cercano |
+| Clic derecho | Quitar el punto o la marca de AP cercanos |
 | `a` | Marcar ubicación del AP conectado |
 | `p` | Cargar imagen del plano del lugar |
 | `c` | Quitar el plano (volver al lienzo vacío) |
-| `e` | Expandir ancho y alto (+5 m al total) |
-| `w` | Expandir solo ancho (+5 m al total) |
-| `r` | Expandir solo alto (+5 m al total) |
+| `e` | Expandir ancho y alto del lienzo (+10 m; el plano no se estira) |
+| `w` | Expandir solo ancho del lienzo (+10 m) |
+| `r` | Expandir solo alto del lienzo (+10 m) |
 | `h` | Generar / actualizar heatmap |
 | `g` | Guardar proyecto (`.wifimap`); si ya existe, lo sobrescribe |
 | `Ctrl+g` | Guardar proyecto como (elegir otro archivo) |
@@ -65,6 +65,8 @@ python main.py
 ## Notas
 
 - En cada medición se guarda la señal del **AP conectado** y, si aparecen, la de **otros BSSID del mismo SSID** (repetidores cercanos). Al hacer clic en un punto se muestran ambos.
+- Cada AP muestra su **banda** (2.4 / 5 / 6 GHz) según el canal reportado por Windows, para distinguir radios del mismo equipo.
+- Si un AP **no está marcado** a mano (`a`), con al menos 2 lecturas de su señal se muestra una **posición estimada** (triángulo azul vacío, «AP est.»), calculada por centroide ponderado por %. Al marcarlo a mano, la estimación se sustituye.
 - El mapa de calor usa la señal del AP al que estabas asociado en cada punto.
 - Si el WiFi está **sin red conectada** (aunque el adaptador siga encendido) o se pierde la asociación, el punto se marca **0% en violeta**. No se usa el escaneo de redes “visibles” en ese caso (evita falsos 90%).
 - Al cargar un plano se pregunta **ancho** (por defecto 50 m) y **largo** (por defecto 96.90 m). La imagen se ajusta a ese rectángulo en metros.
