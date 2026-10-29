@@ -12,10 +12,17 @@ from matplotlib.backend_bases import KeyEvent, MouseEvent
 from matplotlib.collections import PathCollection
 from matplotlib.patches import FancyBboxPatch
 from matplotlib.text import Annotation
-from matplotlib.widgets import Button
+from matplotlib.widgets import Button, TextBox
+
+# Corregir bug interno de Matplotlib donde TextBox._resize está mal decorado
+# y causa AttributeError al no tener ResizeEvent el atributo 'inaxes'.
+TextBox._resize = lambda self, event: self.stop_typing()
 
 from constants import (
     AP_ESTIMATE_MIN_READINGS,
+    AP_ESTIMATE_PATH_LOSS_N,
+    AP_ESTIMATE_RSSI_REF_DBM,
+    AP_ESTIMATE_TOP_N_READINGS,
     AP_ESTIMATE_WEIGHT_POWER,
     AP_MARKER_ACTIVE,
     AP_MARKER_ESTIMATED,
@@ -814,6 +821,7 @@ class WifiHeatmapApp:
     def _draw_ap_list_panel(self) -> None:
         """Panel izquierdo: AP del mismo SSID; resalta el asociado."""
         self._clear_ap_list_artists()
+        self._draw_dimensions_inputs()
 
         # Centro del panel izquierdo (chrome: x=0.006, w=0.138)
         panel_x = 0.075
@@ -883,7 +891,7 @@ class WifiHeatmapApp:
             return
 
         current = normalize_bssid(self.bssid) if self.bssid else ""
-        max_rows = 10
+        max_rows = 5 if self.floor_plan_array is None else 10
         for ap in self.visible_aps[:max_rows]:
             is_current = normalize_bssid(ap.bssid) == current
             color = AP_MARKER_ACTIVE if is_current else UI_TEXT
@@ -935,6 +943,167 @@ class WifiHeatmapApp:
                 zorder=20,
             )
             self._ap_list_artists.append(more)
+
+    def _clear_dimensions_inputs(self) -> None:
+        """Remueve los inputs y el botón de dimensiones del panel izquierdo."""
+        for artist in getattr(self, "_dims_label_artists", []):
+            try:
+                artist.remove()
+            except ValueError:
+                pass
+        self._dims_label_artists = []
+
+        for attr_prefix in ("_width_input", "_height_input", "_apply_dims_btn"):
+            ax_name = f"{attr_prefix}_ax"
+            widget_name = attr_prefix if attr_prefix == "_apply_dims_btn" else f"{attr_prefix}_textbox"
+            
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                setattr(self, widget_name, None)
+                
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                try:
+                    self.fig.delaxes(ax)
+                except ValueError:
+                    pass
+                setattr(self, ax_name, None)
+
+    def _draw_dimensions_inputs(self) -> None:
+        """Dibuja los campos de texto y botón para modificar dimensiones del plano si no hay imagen."""
+        if self.floor_plan_array is not None:
+            self._clear_dimensions_inputs()
+            return
+
+        if getattr(self, "_width_textbox", None) is not None:
+            return
+
+        self._dims_label_artists = []
+        
+        label_sec = self.fig.text(
+            0.075,
+            0.38,
+            "Medidas Plano",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            fontweight="bold",
+            color=UI_TEXT,
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._dims_label_artists.append(label_sec)
+
+        label_w = self.fig.text(
+            0.075,
+            0.34,
+            "Ancho X (metros):",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=UI_MUTED,
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._dims_label_artists.append(label_w)
+
+        self._width_input_ax = self.fig.add_axes([0.02, 0.30, 0.11, 0.038])
+        self._width_input_ax.set_zorder(50)
+        self._width_textbox = TextBox(
+            self._width_input_ax,
+            "",
+            initial=f"{self.width_m:.1f}",
+            color="#F1F5F9",
+            hovercolor="#E2E8F0",
+        )
+        self._width_textbox.label.set_visible(False)
+        self._width_textbox.text_disp.set_fontsize(9.5)
+        self._width_textbox.text_disp.set_color("#0F172A")
+        self._width_textbox.text_disp.set_fontweight("bold")
+        for spine in self._width_input_ax.spines.values():
+            spine.set_color(UI_PANEL_EDGE)
+            spine.set_linewidth(1.0)
+
+        label_h = self.fig.text(
+            0.075,
+            0.26,
+            "Largo Y (metros):",
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=UI_MUTED,
+            transform=self.fig.transFigure,
+            zorder=20,
+        )
+        self._dims_label_artists.append(label_h)
+
+        self._height_input_ax = self.fig.add_axes([0.02, 0.22, 0.11, 0.038])
+        self._height_input_ax.set_zorder(50)
+        self._height_textbox = TextBox(
+            self._height_input_ax,
+            "",
+            initial=f"{self.height_m:.1f}",
+            color="#F1F5F9",
+            hovercolor="#E2E8F0",
+        )
+        self._height_textbox.label.set_visible(False)
+        self._height_textbox.text_disp.set_fontsize(9.5)
+        self._height_textbox.text_disp.set_color("#0F172A")
+        self._height_textbox.text_disp.set_fontweight("bold")
+        for spine in self._height_input_ax.spines.values():
+            spine.set_color(UI_PANEL_EDGE)
+            spine.set_linewidth(1.0)
+
+        self._apply_dims_btn_ax = self.fig.add_axes([0.02, 0.14, 0.11, 0.045])
+        self._apply_dims_btn_ax.set_zorder(50)
+        self._apply_dims_btn = Button(
+            self._apply_dims_btn_ax,
+            "Aceptar",
+            color="#E2E8F0",
+            hovercolor="#CBD5E1",
+        )
+        self._apply_dims_btn.label.set_fontsize(9.5)
+        self._apply_dims_btn.label.set_color("#0F172A")
+        self._apply_dims_btn.label.set_fontweight("bold")
+        self._apply_dims_btn.on_clicked(self._on_apply_dimensions)
+
+    def _on_apply_dimensions(self, _event=None) -> None:
+        """Aplica las dimensiones ingresadas por el usuario en el panel izquierdo."""
+        try:
+            w_str = self._width_textbox.text.strip()
+            h_str = self._height_textbox.text.strip()
+            w = float(w_str)
+            h = float(h_str)
+        except ValueError:
+            import tkinter.messagebox as messagebox
+            messagebox.showerror(
+                "Error de formato",
+                "Por favor, ingresa valores numéricos válidos para el ancho y largo."
+            )
+            return
+
+        if w < 5.0 or w > 500.0 or h < 5.0 or h > 500.0:
+            import tkinter.messagebox as messagebox
+            messagebox.showerror(
+                "Dimensiones inválidas",
+                "Las dimensiones deben estar entre 5.0 y 500.0 metros."
+            )
+            return
+
+        self.width_m = w
+        self.height_m = h
+        self.plan_width_m = w
+        self.plan_length_m = h
+        self._mark_project_dirty()
+
+        had_heatmap = self.heatmap_mesh is not None and len(self.samples) >= 3
+        self._setup_axes()
+        if had_heatmap:
+            self._apply_heatmap()
+        
+        self.status = f"Medidas del plano actualizadas a {w:.1f}x{h:.1f} m."
+        self._refresh(reset_view=True)
+
 
     def _draw_help(self) -> None:
         if self._help_artist is not None:
@@ -1181,7 +1350,13 @@ class WifiHeatmapApp:
     def _estimate_unmarked_ap_locations(self) -> list[ApLocation]:
         """
         Estima posición de APs aún no marcados a mano.
-        Centroide ponderado por señal^power (más peso a % altos).
+
+        Mejoras sobre el centroide simple original:
+        - Mejora 2: usa solo las top-N lecturas de señal más alta, descartando
+          mediciones lejanas o ruidosas que sesgan el resultado.
+        - Mejora 3: convierte señal% → distancia estimada con modelo Log-Distance
+          (física de propagación WiFi) y pondera por 1/distancia² (IDW),
+          en lugar de señal^power que era un proxy sin base física.
         """
         marked = {normalize_bssid(k) for k in self.ap_locations}
         estimated: list[ApLocation] = []
@@ -1191,20 +1366,35 @@ class WifiHeatmapApp:
             if len(readings) < AP_ESTIMATE_MIN_READINGS:
                 continue
 
-            weights = np.array(
-                [
-                    max(pct / 100.0, 0.01) ** AP_ESTIMATE_WEIGHT_POWER
-                    for _, _, pct, _, _ in readings
-                ],
-                dtype=float,
-            )
-            wsum = float(weights.sum())
+            # Mejora 2: filtrar las top-N lecturas de señal más alta.
+            # Las lecturas de señal baja corresponden a puntos lejos del AP
+            # y tienen gran incertidumbre por multipath y obstáculos.
+            top_readings = sorted(readings, key=lambda r: -r[2])[:AP_ESTIMATE_TOP_N_READINGS]
+
+            # Mejora 3: convertir señal% → distancia estimada y ponderar por IDW.
+            # Modelo Log-Distance: RSSI(dBm) = RSSI_ref - 10*n*log10(d)
+            # → d = 10^((RSSI_ref - RSSI) / (10*n))
+            # Windows reporta señal como % (0–100), conversión aproximada:
+            # RSSI(dBm) ≈ (signal_pct / 2) - 100   (−0% → -100 dBm, 100% → -50 dBm)
+            weights: list[float] = []
+            for _, _, pct, _, _ in top_readings:
+                rssi_dbm = (max(pct, 1) / 2.0) - 100.0
+                dist_m = 10.0 ** (
+                    (AP_ESTIMATE_RSSI_REF_DBM - rssi_dbm) / (10.0 * AP_ESTIMATE_PATH_LOSS_N)
+                )
+                dist_m = max(dist_m, 0.1)  # evitar división por cero en señal=100%
+                weights.append(1.0 / dist_m ** 2)
+
+            weights_arr = np.array(weights, dtype=float)
+            wsum = float(weights_arr.sum())
             if wsum <= 0:
                 continue
-            xs = np.array([r[0] for r in readings], dtype=float)
-            ys = np.array([r[1] for r in readings], dtype=float)
-            x = float(np.sum(weights * xs) / wsum)
-            y = float(np.sum(weights * ys) / wsum)
+
+            xs = np.array([r[0] for r in top_readings], dtype=float)
+            ys = np.array([r[1] for r in top_readings], dtype=float)
+            x = float(np.sum(weights_arr * xs) / wsum)
+            y = float(np.sum(weights_arr * ys) / wsum)
+
             best = max(readings, key=lambda r: r[2])
             estimated.append(
                 ApLocation(
@@ -2149,6 +2339,9 @@ class WifiHeatmapApp:
         print(f"Proyecto abierto: {self.project_path}")
 
     def on_key(self, event: KeyEvent) -> None:
+        if (getattr(self, "_width_textbox", None) is not None and self._width_textbox.capturekeystrokes) or \
+           (getattr(self, "_height_textbox", None) is not None and self._height_textbox.capturekeystrokes):
+            return
         key = (event.key or "").lower()
         if key in {"f1", "?", "shift+/"}:
             self.show_usage_guide()

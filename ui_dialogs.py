@@ -466,7 +466,9 @@ def show_network_picker() -> bool:
                 )
             else:
                 status_var.set(
-                    "No se encontraron redes. ¿WiFi activado? Prueba Actualizar."
+                    "No se encontraron redes. Comprueba que el WiFi esté "
+                    "activado y que la ubicación de Windows esté encendida "
+                    "(Configuración → Privacidad → Ubicación). Luego Actualizar."
                 )
 
         def on_error(exc: BaseException) -> None:

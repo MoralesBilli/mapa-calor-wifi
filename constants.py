@@ -51,6 +51,15 @@ UI_CARD_EDGE = "#D5DCE5"
 UI_CARD_BG = "#F7F9FB"
 # Radio (m) para info (clic) / borrar (clic der.) punto o marca de AP
 REMOVE_HIT_RADIUS_M = 0.6
-# Estimación de AP no marcado: mínimo de lecturas y peso por señal
-AP_ESTIMATE_MIN_READINGS = 2
-AP_ESTIMATE_WEIGHT_POWER = 2.5
+# Estimación de AP no marcado
+# Mínimo de lecturas para intentar estimar posición (más lecturas = menos varianza)
+AP_ESTIMATE_MIN_READINGS = 5
+# Legado: ya no se usa directamente (reemplazado por IDW con modelo Log-Distance)
+AP_ESTIMATE_WEIGHT_POWER = 4.0
+# Top-N lecturas de señal más alta que se usan para el cómputo (Mejora 2)
+AP_ESTIMATE_TOP_N_READINGS = 5
+# Modelo Log-Distance para convertir señal% → distancia estimada (Mejora 3)
+# RSSI de referencia a 1 m (dBm); ajustar si se conoce el AP real
+AP_ESTIMATE_RSSI_REF_DBM = -45.0
+# Exponente de pérdida de trayecto: ~2 en espacio libre, ~2.8–3.5 en interiores
+AP_ESTIMATE_PATH_LOSS_N = 2.8

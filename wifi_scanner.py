@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import re
 import subprocess
 import tempfile
@@ -9,6 +10,14 @@ import time
 import xml.sax.saxutils
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from ctypes import wintypes
+    _wlanapi = ctypes.windll.wlanapi
+    HAS_NATIVE_WLAN = True
+except (AttributeError, ImportError, OSError):
+    _wlanapi = None
+    HAS_NATIVE_WLAN = False
 
 
 class WifiScannerError(Exception):
@@ -117,6 +126,39 @@ def normalize_bssid(bssid: str) -> str:
     return bssid.replace("-", ":").casefold().strip()
 
 
+_LOCATION_PERMISSION_MARKERS = (
+    "permiso de ubicación",
+    "permiso de ubicacion",
+    "location permission",
+    "location services",
+    "servicios de ubicación",
+    "servicios de ubicacion",
+    "ms-settings:privacy-location",
+    "requiere elevación",
+    "requiere elevacion",
+    "requires elevation",
+)
+
+# ERROR_ACCESS_DENIED — en Windows 10/11 suele indicar ubicación desactivada
+# o falta de permiso para consultar WLAN.
+_ERROR_ACCESS_DENIED = 5
+
+
+def _looks_like_location_denied(text: str) -> bool:
+    low = text.casefold()
+    return any(marker in low for marker in _LOCATION_PERMISSION_MARKERS)
+
+
+def _access_denied_error(*, detail: str = "") -> WifiScannerError:
+    extra = f" ({detail})" if detail else ""
+    return WifiScannerError(
+        "Windows bloquea el acceso a la WiFi: activa la ubicación del sistema"
+        f"{extra}. Ve a Configuración → Privacidad y seguridad → Ubicación,"
+        " activa «Servicios de ubicación» y permite el acceso a las apps."
+        " También puedes abrir: ms-settings:privacy-location"
+    )
+
+
 def _run_netsh(args: list[str]) -> str:
     try:
         result = subprocess.run(
@@ -134,6 +176,8 @@ def _run_netsh(args: list[str]) -> str:
         raise WifiScannerError(f"No se pudo ejecutar netsh: {exc}") from exc
 
     output = (result.stdout or "") + "\n" + (result.stderr or "")
+    if _looks_like_location_denied(output):
+        raise _access_denied_error(detail="netsh / ubicación")
     if result.returncode != 0 and not result.stdout.strip():
         raise WifiScannerError(
             f"netsh falló (código {result.returncode}). "
@@ -176,6 +220,14 @@ def _parse_signal_pct(value: str) -> int | None:
 
 def get_interface_status() -> InterfaceStatus:
     """Lee estado de la interfaz WiFi (conectado o no, SSID, señal asociada)."""
+    if HAS_NATIVE_WLAN:
+        try:
+            return _native_get_interface_status()
+        except WifiScannerError:
+            raise
+        except Exception:
+            pass
+
     output = _run_netsh(["wlan", "show", "interfaces"])
     state = ""
     ssid: str | None = None
@@ -212,6 +264,7 @@ def get_interface_status() -> InterfaceStatus:
     )
 
 
+
 def get_current_ssid() -> str:
     """Devuelve el SSID de la red WiFi conectada actualmente."""
     status = get_interface_status()
@@ -245,8 +298,18 @@ def list_visible_networks() -> list[VisibleNetwork]:
     Escanea redes WiFi visibles y agrupa por SSID (mejor señal).
     Marca si ya existe un perfil guardado para conectar sin pedir clave.
     """
+    if HAS_NATIVE_WLAN:
+        try:
+            return _native_list_visible_networks()
+        except WifiScannerError:
+            # Acceso denegado / ubicación: no ocultar detrás de un listado vacío.
+            raise
+        except Exception:
+            pass
+
     output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
     profiles = list_wlan_profiles()
+
 
     # ssid -> (signal, auth, cipher)
     best: dict[str, tuple[int, str, str]] = {}
@@ -503,8 +566,15 @@ def scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
     Escanea redes visibles y devuelve BSSID del SSID indicado
     con señal, canal y banda (2.4 / 5 / 6 GHz) cuando netsh lo reporta.
     """
+    if HAS_NATIVE_WLAN:
+        try:
+            return _native_scan_bssids_for_ssid(ssid)
+        except Exception:
+            pass
+
     output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
     lines = output.splitlines()
+
 
     results: list[ScannedBssid] = []
     current_ssid: str | None = None
@@ -702,3 +772,564 @@ def measure_current_network(
         band=assoc_band,
         nearby_aps=nearby,
     )
+
+
+# --- NATIVE WINDOWS WLAN API WRAPPER (ctypes) ---
+if HAS_NATIVE_WLAN and _wlanapi is not None:
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+        def __str__(self):
+            return "{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}" % (
+                self.Data1, self.Data2, self.Data3,
+                self.Data4[0], self.Data4[1], self.Data4[2], self.Data4[3],
+                self.Data4[4], self.Data4[5], self.Data4[6], self.Data4[7]
+            )
+
+    class DOT11_SSID(ctypes.Structure):
+        _fields_ = [
+            ("uSSIDLength", ctypes.c_ulong),
+            ("ucSSID", ctypes.c_char * 32),
+        ]
+
+    class WLAN_INTERFACE_INFO(ctypes.Structure):
+        _fields_ = [
+            ("InterfaceGuid", GUID),
+            ("InterfaceDescription", ctypes.c_wchar * 256),
+            ("isState", ctypes.c_uint),
+        ]
+
+    class WLAN_INTERFACE_INFO_LIST(ctypes.Structure):
+        _fields_ = [
+            ("dwNumberOfItems", ctypes.c_ulong),
+            ("dwIndex", ctypes.c_ulong),
+            ("InterfaceInfo", WLAN_INTERFACE_INFO * 1),
+        ]
+
+    class WLAN_ASSOCIATION_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("dot11Ssid", DOT11_SSID),
+            ("dot11BssType", ctypes.c_uint),
+            ("dot11Bssid", ctypes.c_ubyte * 6),
+            ("dot11PhyType", ctypes.c_uint),
+            ("uDot11PhyIndex", ctypes.c_ulong),
+            ("wlanSignalQuality", ctypes.c_ulong),
+            ("ulRxRate", ctypes.c_ulong),
+            ("ulTxRate", ctypes.c_ulong),
+        ]
+
+    class WLAN_SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("bSecurityEnabled", wintypes.BOOL),
+            ("bOneXEnabled", wintypes.BOOL),
+            ("dot11AuthAlgorithm", ctypes.c_uint),
+            ("dot11CipherAlgorithm", ctypes.c_uint),
+        ]
+
+    class WLAN_CONNECTION_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("isState", ctypes.c_uint),
+            ("wlanConnectionMode", ctypes.c_uint),
+            ("strProfileName", ctypes.c_wchar * 256),
+            ("wlanAssociationAttributes", WLAN_ASSOCIATION_ATTRIBUTES),
+            ("wlanSecurityAttributes", WLAN_SECURITY_ATTRIBUTES),
+        ]
+
+    class WLAN_RATE_SET(ctypes.Structure):
+        _fields_ = [
+            ("uRateSetLength", ctypes.c_ulong),
+            ("usRateSet", ctypes.c_ushort * 126),
+        ]
+
+    class WLAN_BSS_ENTRY(ctypes.Structure):
+        _fields_ = [
+            ("dot11Ssid", DOT11_SSID),
+            ("uPhyId", ctypes.c_ulong),
+            ("dot11Bssid", ctypes.c_ubyte * 6),
+            ("dot11BssType", ctypes.c_uint),
+            ("dot11BssPhyType", ctypes.c_uint),
+            ("lRssi", ctypes.c_long),
+            ("uLinkQuality", ctypes.c_ulong),
+            ("bInRegDomain", ctypes.c_byte),
+            ("ushortBeaconPeriod", ctypes.c_ushort),
+            ("ullTimestamp", ctypes.c_ulonglong),
+            ("ullHostTimestamp", ctypes.c_ulonglong),
+            ("ushortCapabilityInformation", ctypes.c_ushort),
+            ("ulChCenterFrequency", ctypes.c_ulong),
+            ("wlanRateSet", WLAN_RATE_SET),
+            ("ulIeOffset", ctypes.c_ulong),
+            ("ulIeSize", ctypes.c_ulong),
+        ]
+
+    class WLAN_BSS_LIST(ctypes.Structure):
+        _fields_ = [
+            ("dwTotalSize", ctypes.c_ulong),
+            ("dwNumberOfItems", ctypes.c_ulong),
+            ("wlanBssEntries", WLAN_BSS_ENTRY * 1),
+        ]
+
+    class WLAN_AVAILABLE_NETWORK(ctypes.Structure):
+        _fields_ = [
+            ("strProfileName", ctypes.c_wchar * 256),
+            ("dot11Ssid", DOT11_SSID),
+            ("dot11BssType", ctypes.c_uint),
+            ("uNumberOfBssids", ctypes.c_ulong),
+            ("bNetworkConnectable", wintypes.BOOL),
+            ("wlanNotConnectableReason", ctypes.c_ulong),
+            ("uNumberOfPhyTypes", ctypes.c_ulong),
+            ("dot11PhyTypes", ctypes.c_uint * 8),
+            ("bMorePhyTypes", wintypes.BOOL),
+            ("wlanSignalQuality", ctypes.c_ulong),
+            ("bSecurityEnabled", wintypes.BOOL),
+            ("dot11DefaultAuthAlgorithm", ctypes.c_uint),
+            ("dot11DefaultCipherAlgorithm", ctypes.c_uint),
+            ("dwFlags", ctypes.c_ulong),
+            ("dwReserved", ctypes.c_ulong),
+        ]
+
+    class WLAN_AVAILABLE_NETWORK_LIST(ctypes.Structure):
+        _fields_ = [
+            ("dwNumberOfItems", ctypes.c_ulong),
+            ("dwIndex", ctypes.c_ulong),
+            ("Network", WLAN_AVAILABLE_NETWORK * 1),
+        ]
+
+    # Carga de firmas wlanapi.dll
+    _wlanapi.WlanOpenHandle.argtypes = [wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.HANDLE)]
+    _wlanapi.WlanOpenHandle.restype = wintypes.DWORD
+
+    _wlanapi.WlanCloseHandle.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    _wlanapi.WlanCloseHandle.restype = wintypes.DWORD
+
+    _wlanapi.WlanEnumInterfaces.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(ctypes.POINTER(WLAN_INTERFACE_INFO_LIST))]
+    _wlanapi.WlanEnumInterfaces.restype = wintypes.DWORD
+
+    _wlanapi.WlanFreeMemory.argtypes = [ctypes.c_void_p]
+    _wlanapi.WlanFreeMemory.restype = None
+
+    _wlanapi.WlanQueryInterface.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(GUID),
+        ctypes.c_uint,
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_uint)
+    ]
+    _wlanapi.WlanQueryInterface.restype = wintypes.DWORD
+
+    _wlanapi.WlanGetNetworkBssList.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(GUID),
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        wintypes.BOOL,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p)
+    ]
+    _wlanapi.WlanGetNetworkBssList.restype = wintypes.DWORD
+
+    _wlanapi.WlanGetAvailableNetworkList.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(GUID),
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.POINTER(WLAN_AVAILABLE_NETWORK_LIST))
+    ]
+    _wlanapi.WlanGetAvailableNetworkList.restype = wintypes.DWORD
+
+
+def _native_format_bssid(bssid_bytes) -> str:
+    return ":".join(f"{b:02x}" for b in bssid_bytes)
+
+
+def _native_info_from_frequency(freq_khz: int) -> tuple[int | None, str]:
+    if not freq_khz:
+        return None, ""
+    # 2.4 GHz
+    if 2400000 <= freq_khz <= 2500000:
+        if freq_khz == 2484000:
+            return 14, "2.4 GHz"
+        channel = (freq_khz - 2407000) // 5000
+        if 1 <= channel <= 13:
+            return channel, "2.4 GHz"
+        return None, "2.4 GHz"
+    # 5 GHz
+    if 4900000 <= freq_khz <= 5900000:
+        channel = (freq_khz - 5000000) // 5000
+        return channel, "5 GHz"
+    # 6 GHz
+    if 5900000 <= freq_khz <= 7200000:
+        channel = (freq_khz - 5950000) // 5000
+        return channel, "6 GHz"
+    return None, ""
+
+
+def _native_auth_to_str(algo: int) -> str:
+    mapping = {
+        1: "Open",
+        2: "Shared Key",
+        3: "WPA-Enterprise",
+        4: "WPA-PSK",
+        5: "WPA-None",
+        6: "WPA2-Enterprise",
+        7: "WPA2-PSK",
+        8: "WPA3-Enterprise",
+        9: "WPA3-SAE",
+    }
+    return mapping.get(algo, f"Desconocida ({algo})")
+
+
+def _native_cipher_to_str(algo: int) -> str:
+    mapping = {
+        0: "None",
+        1: "WEP",
+        2: "TKIP",
+        4: "AES",
+        5: "WEP",
+        256: "Use Group",
+        257: "WEP",
+    }
+    return mapping.get(algo, f"Desconocido ({algo})")
+
+
+def _native_get_interface_status() -> InterfaceStatus:
+    if not HAS_NATIVE_WLAN or _wlanapi is None:
+        raise WifiScannerError("API Nativa de WLAN no disponible.")
+
+    negotiated_ver = wintypes.DWORD()
+    client_handle = wintypes.HANDLE()
+    ret = _wlanapi.WlanOpenHandle(2, None, ctypes.byref(negotiated_ver), ctypes.byref(client_handle))
+    if ret != 0:
+        raise WifiScannerError(f"WlanOpenHandle falló con código {ret}")
+
+    try:
+        pInterfaceList = ctypes.POINTER(WLAN_INTERFACE_INFO_LIST)()
+        ret = _wlanapi.WlanEnumInterfaces(client_handle, None, ctypes.byref(pInterfaceList))
+        if ret != 0:
+            raise WifiScannerError(f"WlanEnumInterfaces falló con código {ret}")
+
+        try:
+            interfaces = pInterfaceList.contents
+            num_items = interfaces.dwNumberOfItems
+            if num_items == 0:
+                return InterfaceStatus(
+                    connected=False,
+                    state="desconectado",
+                    ssid=None,
+                    signal_pct=None,
+                    bssid="",
+                )
+
+            info_ptr = ctypes.cast(
+                ctypes.byref(interfaces.InterfaceInfo),
+                ctypes.POINTER(WLAN_INTERFACE_INFO * num_items)
+            )
+            info = info_ptr.contents[0]
+            guid = info.InterfaceGuid
+            is_state = info.isState
+
+            state_str = {
+                0: "not_ready",
+                1: "connected",
+                2: "ad_hoc_network_formed",
+                3: "disconnecting",
+                4: "disconnected",
+                5: "associating",
+                6: "discovering",
+                7: "authenticating",
+            }.get(is_state, "desconocido")
+
+            if is_state != 1:
+                return InterfaceStatus(
+                    connected=False,
+                    state=state_str,
+                    ssid=None,
+                    signal_pct=None,
+                    bssid="",
+                )
+
+            data_size = wintypes.DWORD()
+            pData = ctypes.c_void_p()
+            opcode_type = ctypes.c_uint()
+
+            ret_q = _wlanapi.WlanQueryInterface(
+                client_handle,
+                ctypes.byref(guid),
+                7,  # wlan_intf_opcode_current_connection
+                None,
+                ctypes.byref(data_size),
+                ctypes.byref(pData),
+                ctypes.byref(opcode_type)
+            )
+
+            if ret_q == _ERROR_ACCESS_DENIED:
+                raise _access_denied_error(detail="WlanQueryInterface")
+            if ret_q != 0:
+                return InterfaceStatus(
+                    connected=False,
+                    state=state_str,
+                    ssid=None,
+                    signal_pct=None,
+                    bssid="",
+                )
+
+            try:
+                conn_attrs = ctypes.cast(pData, ctypes.POINTER(WLAN_CONNECTION_ATTRIBUTES)).contents
+                assoc_attrs = conn_attrs.wlanAssociationAttributes
+                ssid = assoc_attrs.dot11Ssid.ucSSID[:assoc_attrs.dot11Ssid.uSSIDLength].decode('utf-8', errors='replace')
+                bssid = _native_format_bssid(assoc_attrs.dot11Bssid)
+                signal_pct = int(assoc_attrs.wlanSignalQuality)
+
+                channel = None
+                band = ""
+                pRawBssList = ctypes.c_void_p()
+                ret_bss = _wlanapi.WlanGetNetworkBssList(
+                    client_handle,
+                    ctypes.byref(guid),
+                    None,
+                    1,
+                    True,
+                    None,
+                    ctypes.byref(pRawBssList)
+                )
+                if ret_bss == 0:
+                    try:
+                        header_ptr = ctypes.cast(pRawBssList, ctypes.POINTER(ctypes.c_ulong * 2))
+                        dwTotalSize = header_ptr.contents[0]
+                        dwNumberOfItems = header_ptr.contents[1]
+                        struct_size = ctypes.sizeof(WLAN_BSS_ENTRY)
+                        for i in range(dwNumberOfItems):
+                            offset = 8 + i * struct_size
+                            if offset + struct_size > dwTotalSize:
+                                break
+                            entry_ptr = ctypes.cast(
+                                ctypes.c_void_p(pRawBssList.value + offset),
+                                ctypes.POINTER(WLAN_BSS_ENTRY)
+                            )
+                            entry = entry_ptr.contents
+                            entry_bssid = _native_format_bssid(entry.dot11Bssid)
+                            if normalize_bssid(entry_bssid) == normalize_bssid(bssid):
+                                channel, band = _native_info_from_frequency(entry.ulChCenterFrequency)
+                                break
+                    finally:
+                        _wlanapi.WlanFreeMemory(pRawBssList)
+
+                return InterfaceStatus(
+                    connected=True,
+                    state=state_str,
+                    ssid=ssid,
+                    signal_pct=signal_pct,
+                    bssid=bssid,
+                    channel=channel,
+                    band=band,
+                )
+            finally:
+                _wlanapi.WlanFreeMemory(pData)
+        finally:
+            _wlanapi.WlanFreeMemory(pInterfaceList)
+    finally:
+        _wlanapi.WlanCloseHandle(client_handle, None)
+
+
+def _native_list_visible_networks() -> list[VisibleNetwork]:
+    if not HAS_NATIVE_WLAN or _wlanapi is None:
+        raise WifiScannerError("API Nativa de WLAN no disponible.")
+
+    negotiated_ver = wintypes.DWORD()
+    client_handle = wintypes.HANDLE()
+    ret = _wlanapi.WlanOpenHandle(2, None, ctypes.byref(negotiated_ver), ctypes.byref(client_handle))
+    if ret != 0:
+        raise WifiScannerError(f"WlanOpenHandle falló con código {ret}")
+
+    try:
+        pInterfaceList = ctypes.POINTER(WLAN_INTERFACE_INFO_LIST)()
+        ret = _wlanapi.WlanEnumInterfaces(client_handle, None, ctypes.byref(pInterfaceList))
+        if ret != 0:
+            raise WifiScannerError(f"WlanEnumInterfaces falló con código {ret}")
+
+        try:
+            interfaces = pInterfaceList.contents
+            num_items = interfaces.dwNumberOfItems
+            if num_items == 0:
+                return []
+
+            info_ptr = ctypes.cast(
+                ctypes.byref(interfaces.InterfaceInfo),
+                ctypes.POINTER(WLAN_INTERFACE_INFO * num_items)
+            )
+            guid = info_ptr.contents[0].InterfaceGuid
+
+            pAvailableNetworkList = ctypes.POINTER(WLAN_AVAILABLE_NETWORK_LIST)()
+            ret_net = _wlanapi.WlanGetAvailableNetworkList(
+                client_handle,
+                ctypes.byref(guid),
+                2,  # WLAN_AVAILABLE_NETWORK_INCLUDE_ALL_MANUAL_HIDDEN_PROFILES
+                None,
+                ctypes.byref(pAvailableNetworkList)
+            )
+
+            if ret_net == _ERROR_ACCESS_DENIED:
+                raise _access_denied_error(detail="WlanGetAvailableNetworkList")
+            if ret_net != 0:
+                raise WifiScannerError(f"WlanGetAvailableNetworkList falló con código {ret_net}")
+
+            try:
+                net_list = pAvailableNetworkList.contents
+                num_networks = net_list.dwNumberOfItems
+                net_ptr = ctypes.cast(
+                    ctypes.byref(net_list.Network),
+                    ctypes.POINTER(WLAN_AVAILABLE_NETWORK * num_networks)
+                )
+
+                networks: list[VisibleNetwork] = []
+                for i in range(num_networks):
+                    net = net_ptr.contents[i]
+                    ssid = net.dot11Ssid.ucSSID[:net.dot11Ssid.uSSIDLength].decode('utf-8', errors='replace')
+                    if not ssid:
+                        continue
+                    signal_pct = int(net.wlanSignalQuality)
+                    auth = _native_auth_to_str(net.dot11DefaultAuthAlgorithm)
+                    cipher = _native_cipher_to_str(net.dot11DefaultCipherAlgorithm)
+                    has_profile = bool(net.dwFlags & 2)
+
+                    networks.append(
+                        VisibleNetwork(
+                            ssid=ssid,
+                            signal_pct=signal_pct,
+                            authentication=auth,
+                            encryption=cipher,
+                            has_profile=has_profile,
+                        )
+                    )
+
+                best: dict[str, VisibleNetwork] = {}
+                for n in networks:
+                    key = n.ssid.casefold()
+                    prev = best.get(key)
+                    if prev is None or n.signal_pct > prev.signal_pct:
+                        best[key] = n
+
+                return sorted(best.values(), key=lambda n: (-n.signal_pct, n.ssid.casefold()))
+            finally:
+                _wlanapi.WlanFreeMemory(pAvailableNetworkList)
+        finally:
+            _wlanapi.WlanFreeMemory(pInterfaceList)
+    finally:
+        _wlanapi.WlanCloseHandle(client_handle, None)
+
+
+def _native_scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
+    if not HAS_NATIVE_WLAN or _wlanapi is None:
+        raise WifiScannerError("API Nativa de WLAN no disponible.")
+
+    negotiated_ver = wintypes.DWORD()
+    client_handle = wintypes.HANDLE()
+    ret = _wlanapi.WlanOpenHandle(2, None, ctypes.byref(negotiated_ver), ctypes.byref(client_handle))
+    if ret != 0:
+        raise WifiScannerError(f"WlanOpenHandle falló con código {ret}")
+
+    try:
+        pInterfaceList = ctypes.POINTER(WLAN_INTERFACE_INFO_LIST)()
+        ret = _wlanapi.WlanEnumInterfaces(client_handle, None, ctypes.byref(pInterfaceList))
+        if ret != 0:
+            raise WifiScannerError(f"WlanEnumInterfaces falló con código {ret}")
+
+        try:
+            interfaces = pInterfaceList.contents
+            num_items = interfaces.dwNumberOfItems
+            if num_items == 0:
+                return []
+
+            info_ptr = ctypes.cast(
+                ctypes.byref(interfaces.InterfaceInfo),
+                ctypes.POINTER(WLAN_INTERFACE_INFO * num_items)
+            )
+            guid = info_ptr.contents[0].InterfaceGuid
+
+            pRawBssList = ctypes.c_void_p()
+            ret_bss = _wlanapi.WlanGetNetworkBssList(
+                client_handle,
+                ctypes.byref(guid),
+                None,
+                1,
+                True,
+                None,
+                ctypes.byref(pRawBssList)
+            )
+
+            if ret_bss != 0:
+                raise WifiScannerError(f"WlanGetNetworkBssList falló con código {ret_bss}")
+
+            try:
+                header_ptr = ctypes.cast(pRawBssList, ctypes.POINTER(ctypes.c_ulong * 2))
+                dwTotalSize = header_ptr.contents[0]
+                dwNumberOfItems = header_ptr.contents[1]
+
+                results: list[ScannedBssid] = []
+                struct_size = ctypes.sizeof(WLAN_BSS_ENTRY)
+                for i in range(dwNumberOfItems):
+                    offset = 8 + i * struct_size
+                    if offset + struct_size > dwTotalSize:
+                        break
+
+                    entry_ptr = ctypes.cast(
+                        ctypes.c_void_p(pRawBssList.value + offset),
+                        ctypes.POINTER(WLAN_BSS_ENTRY)
+                    )
+                    entry = entry_ptr.contents
+
+                    entry_ssid = entry.dot11Ssid.ucSSID[:entry.dot11Ssid.uSSIDLength].decode('utf-8', errors='replace')
+                    if entry_ssid.casefold() == ssid.casefold():
+                        bssid = _native_format_bssid(entry.dot11Bssid)
+                        signal_pct = int(entry.uLinkQuality)
+                        channel, band = _native_info_from_frequency(entry.ulChCenterFrequency)
+
+                        radio_mapping = {
+                            1: "FHSS",
+                            2: "DSSS",
+                            3: "IR Baseband",
+                            4: "802.11a",
+                            5: "HRDSSS (802.11b)",
+                            6: "802.11g",
+                            7: "802.11n",
+                            8: "802.11ac",
+                            9: "802.11ax",
+                        }
+                        radio_type = radio_mapping.get(entry.dot11BssPhyType, "Desconocido")
+
+                        results.append(
+                            ScannedBssid(
+                                bssid=bssid,
+                                signal_pct=signal_pct,
+                                channel=channel,
+                                band=band,
+                                radio_type=radio_type,
+                            )
+                        )
+
+                best: dict[str, ScannedBssid] = {}
+                for item in results:
+                    key = normalize_bssid(item.bssid)
+                    prev = best.get(key)
+                    if prev is None or item.signal_pct > prev.signal_pct:
+                        best[key] = item
+                    elif prev is not None and item.signal_pct == prev.signal_pct:
+                        if not prev.band and item.band:
+                            best[key] = item
+                return sorted(
+                    best.values(),
+                    key=lambda item: (-item.signal_pct, normalize_bssid(item.bssid)),
+                )
+            finally:
+                _wlanapi.WlanFreeMemory(pRawBssList)
+        finally:
+            _wlanapi.WlanFreeMemory(pInterfaceList)
+    finally:
+        _wlanapi.WlanCloseHandle(client_handle, None)
+

@@ -1,0 +1,97 @@
+{
+  "format": "wifi-heatmap-project",
+  "version": 2,
+  "canvas": {
+    "width_m": 159.0,
+    "height_m": 96.0
+  },
+  "floor_plan": {
+    "path": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "path_absolute": "C:/Users/PracticanteIT/Downloads/plano3_page-0001 (1).jpg",
+    "width_m": 159.0,
+    "length_m": 96.0
+  },
+  "samples": [
+    {
+      "x_m": -67.598,
+      "y_m": 37.593,
+      "signal_pct": 55,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:17:27",
+      "nearby_aps": [],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": -77.763,
+      "y_m": 38.546,
+      "signal_pct": 80,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:18:10",
+      "nearby_aps": [],
+      "channel": 44,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": -45.374,
+      "y_m": 38.688,
+      "signal_pct": 61,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:18:42",
+      "nearby_aps": [],
+      "channel": 44,
+      "band": "5 GHz"
+    },
+    {
+      "x_m": -71.684,
+      "y_m": 28.415,
+      "signal_pct": 91,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:19:58",
+      "nearby_aps": [],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": -68.83,
+      "y_m": 33.694,
+      "signal_pct": 77,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:20:37",
+      "nearby_aps": [],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": -58.129,
+      "y_m": 35.264,
+      "signal_pct": 81,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:21:45",
+      "nearby_aps": [],
+      "channel": null,
+      "band": ""
+    },
+    {
+      "x_m": -29.735,
+      "y_m": 36.12,
+      "signal_pct": 57,
+      "bssid": "f4:92:bf:18:1c:b2",
+      "ssid": "PDM-2025",
+      "timestamp": "2026-08-18T14:22:08",
+      "nearby_aps": [],
+      "channel": null,
+      "band": ""
+    }
+  ],
+  "ap_locations": [],
+  "view": {
+    "heatmap_visible": true
+  }
+}
