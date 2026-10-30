@@ -29,6 +29,8 @@ CONNECTION_POLL_MS = 2500
 AUTOSAVE_INTERVAL_MS = 60_000
 # Cada cuántos ciclos de conexión se reescanean los BSSID del SSID
 AP_SCAN_EVERY_N_POLLS = 3
+# Otros AP del mismo SSID: solo se listan / guardan si la señal es ≥ este %
+NEARBY_AP_MIN_SIGNAL_PCT = 40
 AP_MARKER_ACTIVE = "#C2410C"  # naranja: AP al que estás conectado
 AP_MARKER_OTHER = "#64748B"  # gris: otros AP marcados
 AP_LIST_OTHER = "#334155"

@@ -40,6 +40,7 @@ from constants import (
     HEATMAP_ALPHA_DEFAULT,
     HEATMAP_ALPHA_WITH_PLAN,
     IMAGE_EXTENSION,
+    NEARBY_AP_MIN_SIGNAL_PCT,
     NO_SIGNAL_COLOR,
     PLANOS_DIR,
     PROJECTS_DIR,
@@ -122,8 +123,9 @@ class WifiHeatmapApp:
         self.visible_aps: list[ScannedBssid] = []
         self._visible_aps_ssid: str = ""
         self._help_artist = None
-        self._help_button: Button | None = None
-        self._help_button_ax = None
+        self._toolbar_buttons: list[Button] = []
+        self._toolbar_axes: list = []
+        self._toolbar_key_artists: list = []
         self._connection_artist = None
         self._status_artist = None
         self._meta_artist = None
@@ -314,7 +316,7 @@ class WifiHeatmapApp:
         specs = (
             (0.006, 0.125, 0.138, 0.70),  # panel AP (estrecho)
             (0.856, 0.125, 0.138, 0.70),  # panel info (estrecho)
-            (0.006, 0.012, 0.988, 0.090),  # pie de atajos
+            (0.006, 0.006, 0.988, 0.112),  # barra de acciones
         )
         for x, y, w, h in specs:
             patch = FancyBboxPatch(
@@ -517,9 +519,20 @@ class WifiHeatmapApp:
                     band=self.band or listed.band,
                     radio_type=listed.radio_type,
                 )
+            # Mantener asociados siempre; descartar otros por debajo del umbral
+            filtered = [
+                ap
+                for ap in by_key.values()
+                if normalize_bssid(ap.bssid) == key
+                or ap.signal_pct >= NEARBY_AP_MIN_SIGNAL_PCT
+            ]
             self.visible_aps = sorted(
-                by_key.values(),
-                key=lambda ap: (-ap.signal_pct, normalize_bssid(ap.bssid)),
+                filtered,
+                key=lambda ap: (
+                    0 if normalize_bssid(ap.bssid) == key else 1,
+                    -ap.signal_pct,
+                    normalize_bssid(ap.bssid),
+                ),
             )
         after = self._ap_list_view_snapshot()
         if after != before:
@@ -536,9 +549,17 @@ class WifiHeatmapApp:
     ) -> bool:
         """Fusiona un escaneo BSSID en la lista lateral. Devuelve si cambió."""
         before = self._ap_list_view_snapshot()
+        assoc_key = (
+            normalize_bssid(self.bssid)
+            if self.bssid
+            else ""
+        )
         by_key: dict[str, ScannedBssid] = {}
         for ap in found:
             key = normalize_bssid(ap.bssid)
+            # AP asociado siempre; el resto solo si señal ≥ umbral
+            if key != assoc_key and ap.signal_pct < NEARBY_AP_MIN_SIGNAL_PCT:
+                continue
             prev = by_key.get(key)
             if prev is None or ap.signal_pct > prev.signal_pct:
                 by_key[key] = ap
@@ -564,10 +585,12 @@ class WifiHeatmapApp:
                     radio_type=listed.radio_type,
                 )
 
-        self.visible_aps = sorted(
-            by_key.values(),
-            key=lambda ap: (-ap.signal_pct, normalize_bssid(ap.bssid)),
-        )
+        # Conectado primero; luego el resto por señal (solo ≥ umbral ya filtrados)
+        def _ap_sort_key(ap: ScannedBssid) -> tuple:
+            is_assoc = normalize_bssid(ap.bssid) == assoc_key
+            return (0 if is_assoc else 1, -ap.signal_pct, normalize_bssid(ap.bssid))
+
+        self.visible_aps = sorted(by_key.values(), key=_ap_sort_key)
         self._visible_aps_ssid = ssid
         after = self._ap_list_view_snapshot()
         changed = after != before or force
@@ -848,12 +871,13 @@ class WifiHeatmapApp:
         subtitle = self.fig.text(
             panel_x,
             top_y - 0.024,
-            "naranja = conectado",
+            f"● conectado · resto ≥{NEARBY_AP_MIN_SIGNAL_PCT}%",
             ha="center",
             va="top",
-            fontsize=8.5,
+            fontsize=7.5,
             color=UI_MUTED,
             transform=self.fig.transFigure,
+            linespacing=1.15,
             zorder=20,
         )
         self._ap_list_artists.append(subtitle)
@@ -891,8 +915,15 @@ class WifiHeatmapApp:
             return
 
         current = normalize_bssid(self.bssid) if self.bssid else ""
-        max_rows = 5 if self.floor_plan_array is None else 10
-        for ap in self.visible_aps[:max_rows]:
+        # Lista ya filtrada: AP conectado + otros con señal ≥ NEARBY_AP_MIN_SIGNAL_PCT
+        display_aps = [
+            ap
+            for ap in self.visible_aps
+            if normalize_bssid(ap.bssid) == current
+            or ap.signal_pct >= NEARBY_AP_MIN_SIGNAL_PCT
+        ]
+        max_rows = 8 if self.floor_plan_array is None else 12
+        for ap in display_aps[:max_rows]:
             is_current = normalize_bssid(ap.bssid) == current
             color = AP_MARKER_ACTIVE if is_current else UI_TEXT
             weight = "bold" if is_current else "normal"
@@ -929,7 +960,7 @@ class WifiHeatmapApp:
             self._ap_list_artists.append(row)
             y -= line_h * (1.55 if is_current else 1.45)
 
-        remaining = len(self.visible_aps) - max_rows
+        remaining = len(display_aps) - max_rows
         if remaining > 0:
             more = self.fig.text(
                 panel_x,
@@ -1106,47 +1137,140 @@ class WifiHeatmapApp:
 
 
     def _draw_help(self) -> None:
+        """Barra inferior: botones de acción con la tecla debajo de cada uno."""
+        self._draw_action_toolbar()
+        # Paneles estrechos → más protagonismo al mapa
+        self.fig.subplots_adjust(bottom=0.155, left=0.165, right=0.835, top=0.86)
+
+    def _clear_action_toolbar(self) -> None:
+        for artist in self._toolbar_key_artists:
+            try:
+                artist.remove()
+            except ValueError:
+                pass
+        self._toolbar_key_artists = []
         if self._help_artist is not None:
             try:
                 self._help_artist.remove()
             except ValueError:
                 pass
-        help_text = (
-            "Clic medir / info   ·   clic der. quitar   ·   "
-            "a AP   ·   p/c plano   ·   e/w/r expandir   ·   h heatmap\n"
-            "g guardar   ·   Ctrl+g guardar como   ·   o abrir   ·   "
-            "s PNG   ·   z deshacer   ·   casa = elegir red   ·   q salir"
-        )
+            self._help_artist = None
+        for ax in self._toolbar_axes:
+            try:
+                self.fig.delaxes(ax)
+            except ValueError:
+                pass
+        self._toolbar_axes = []
+        self._toolbar_buttons = []
+
+    def _draw_action_toolbar(self) -> None:
+        """Botones en el pie; debajo de cada uno, la tecla equivalente."""
+        if self._toolbar_buttons:
+            return
+
+        self._clear_action_toolbar()
+
+        # (etiqueta, tecla mostrada, callback)
+        actions: list[tuple[str, str, object]] = [
+            ("AP", "a", self._action_mark_ap),
+            ("Plano", "p", self.load_floor_plan),
+            ("Quitar", "c", self.clear_floor_plan),
+            ("Expandir", "e", lambda: self.expand(width=True, height=True)),
+            ("+Ancho", "w", lambda: self.expand(width=True, height=False)),
+            ("+Alto", "r", lambda: self.expand(width=False, height=True)),
+            ("Heatmap", "h", self._action_heatmap),
+            ("Guardar", "g", lambda: self.save_project(ask_path=self.project_path is None)),
+            ("G. como", "Ctrl+g", lambda: self.save_project(ask_path=True)),
+            ("Abrir", "o", self.open_project),
+            ("PNG", "s", self.save),
+            ("Deshacer", "z", self.undo),
+            ("Ayuda", "F1", self.show_usage_guide),
+            ("Salir", "q", lambda: plt.close(self.fig)),
+        ]
+
+        n = len(actions)
+        left = 0.012
+        right = 0.988
+        gap = 0.004
+        usable = right - left - gap * (n - 1)
+        btn_w = usable / n
+        btn_h = 0.040
+        btn_y = 0.048
+        key_y = 0.018
+
         self._help_artist = self.fig.text(
-            0.46,
-            0.055,
-            help_text,
-            ha="center",
+            0.012,
+            0.100,
+            "Clic = medir / info   ·   clic der. = quitar",
+            ha="left",
             va="center",
-            fontsize=10,
+            fontsize=7.5,
             color=UI_MUTED,
-            linespacing=1.4,
             zorder=25,
         )
-        self._draw_help_button()
-        # Paneles estrechos → más protagonismo al mapa
-        self.fig.subplots_adjust(bottom=0.145, left=0.165, right=0.835, top=0.86)
 
-    def _draw_help_button(self) -> None:
-        """Botón fijo para abrir la guía de uso y simbología."""
-        if self._help_button_ax is not None:
+        for i, (label, key_hint, callback) in enumerate(actions):
+            x = left + i * (btn_w + gap)
+            ax = self.fig.add_axes([x, btn_y, btn_w, btn_h])
+            ax.set_zorder(40)
+            btn = Button(
+                ax,
+                label,
+                color=UI_SOFT,
+                hovercolor=UI_CONNECTED_SOFT,
+            )
+            btn.label.set_fontsize(7.5)
+            btn.label.set_color(UI_TEXT)
+            btn.label.set_fontweight("bold")
+            # Evitar captura tardía incorrecta en el bucle
+            btn.on_clicked(lambda _event, cb=callback: cb())
+            self._toolbar_axes.append(ax)
+            self._toolbar_buttons.append(btn)
+
+            key_artist = self.fig.text(
+                x + btn_w / 2.0,
+                key_y,
+                key_hint,
+                ha="center",
+                va="center",
+                fontsize=7,
+                color=UI_MUTED,
+                fontweight="bold",
+                zorder=25,
+            )
+            self._toolbar_key_artists.append(key_artist)
+
+    def _action_mark_ap(self) -> None:
+        """Activa/cancela el modo marcar ubicación del AP asociado."""
+        if self._placing_ap:
+            self._placing_ap = False
+            self.status = "Marcado de AP cancelado."
+            self._refresh()
             return
-        self._help_button_ax = self.fig.add_axes([0.86, 0.032, 0.10, 0.048])
-        self._help_button = Button(
-            self._help_button_ax,
-            "Ayuda ?",
-            color=UI_SOFT,
-            hovercolor=UI_CONNECTED_SOFT,
+        try:
+            self._refresh_connection_info()
+        except WifiScannerError:
+            pass
+        if not self.connected or not self.bssid:
+            self.status = (
+                "No hay AP asociado. Conéctate a una red para marcarlo."
+            )
+            self._refresh()
+            return
+        self._placing_ap = True
+        self.status = (
+            f"Modo marcar AP («{self.ssid}» · {self.bssid}): "
+            "haz clic en su ubicación en el mapa (a otra vez para cancelar)."
         )
-        self._help_button.label.set_fontsize(10)
-        self._help_button.label.set_color(UI_TEXT)
-        self._help_button.label.set_fontweight("bold")
-        self._help_button.on_clicked(lambda _event: open_usage_guide())
+        self._refresh()
+
+    def _action_heatmap(self) -> None:
+        """Genera o actualiza el mapa de calor si hay puntos suficientes."""
+        if len(self.samples) < 3:
+            self.status = "Se necesitan al menos 3 puntos para el heatmap."
+            self._refresh()
+            return
+        self._apply_heatmap()
 
     def show_usage_guide(self) -> None:
         """Abre la guía de uso (diálogo Tk)."""
@@ -1963,11 +2087,16 @@ class WifiHeatmapApp:
         self._point_info_artists.append(nearby_title)
         y -= 0.028
 
-        if not sample.nearby_aps:
+        nearby_strong = [
+            ap
+            for ap in sample.nearby_aps
+            if ap.signal_pct >= NEARBY_AP_MIN_SIGNAL_PCT
+        ]
+        if not nearby_strong:
             none_txt = self.fig.text(
                 panel_x,
                 y,
-                "Ninguno",
+                f"Ninguno ≥{NEARBY_AP_MIN_SIGNAL_PCT}%",
                 ha="center",
                 va="top",
                 fontsize=10,
@@ -1978,7 +2107,7 @@ class WifiHeatmapApp:
             self._point_info_artists.append(none_txt)
             return
 
-        for ap in sample.nearby_aps[:6]:
+        for ap in nearby_strong[:8]:
             band_bit = f"\n{ap.band}" if ap.band else ""
             row = self.fig.text(
                 panel_x,
@@ -2003,7 +2132,7 @@ class WifiHeatmapApp:
             self._point_info_artists.append(row)
             y -= 0.046 if ap.band else 0.036
 
-        remaining = len(sample.nearby_aps) - 6
+        remaining = len(nearby_strong) - 8
         if remaining > 0:
             more = self.fig.text(
                 panel_x,
@@ -2357,38 +2486,14 @@ class WifiHeatmapApp:
         elif key == "c":
             self.clear_floor_plan()
         elif key == "a":
-            if self._placing_ap:
-                self._placing_ap = False
-                self.status = "Marcado de AP cancelado."
-                self._refresh()
-                return
-            try:
-                self._refresh_connection_info()
-            except WifiScannerError:
-                pass
-            if not self.connected or not self.bssid:
-                self.status = (
-                    "No hay AP asociado. Conéctate a una red para marcarlo."
-                )
-                self._refresh()
-                return
-            self._placing_ap = True
-            self.status = (
-                f"Modo marcar AP («{self.ssid}» · {self.bssid}): "
-                "haz clic en su ubicación en el mapa (a otra vez para cancelar)."
-            )
-            self._refresh()
+            self._action_mark_ap()
         elif key == "escape":
             if self._placing_ap:
                 self._placing_ap = False
                 self.status = "Marcado de AP cancelado."
                 self._refresh()
         elif key == "h":
-            if len(self.samples) < 3:
-                self.status = "Se necesitan al menos 3 puntos para el heatmap."
-                self._refresh()
-            else:
-                self._apply_heatmap()
+            self._action_heatmap()
         elif key == "g":
             # Si ya hay proyecto abierto/guardado, sobrescribe; si no, pide ruta
             self.save_project(ask_path=self.project_path is None)

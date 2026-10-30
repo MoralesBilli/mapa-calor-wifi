@@ -11,6 +11,8 @@ import xml.sax.saxutils
 from dataclasses import dataclass
 from pathlib import Path
 
+from constants import NEARBY_AP_MIN_SIGNAL_PCT
+
 try:
     from ctypes import wintypes
     _wlanapi = ctypes.windll.wlanapi
@@ -561,20 +563,27 @@ def connect_to_network(
                 pass
 
 
-def scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
-    """
-    Escanea redes visibles y devuelve BSSID del SSID indicado
-    con señal, canal y banda (2.4 / 5 / 6 GHz) cuando netsh lo reporta.
-    """
-    if HAS_NATIVE_WLAN:
-        try:
-            return _native_scan_bssids_for_ssid(ssid)
-        except Exception:
-            pass
+def _dedupe_scanned_bssids(items: list[ScannedBssid]) -> list[ScannedBssid]:
+    """Queda un registro por BSSID (mejor señal; conserva canal/banda)."""
+    best: dict[str, ScannedBssid] = {}
+    for item in items:
+        key = normalize_bssid(item.bssid)
+        prev = best.get(key)
+        if prev is None or item.signal_pct > prev.signal_pct:
+            best[key] = item
+        elif prev is not None and item.signal_pct == prev.signal_pct:
+            if not prev.band and item.band:
+                best[key] = item
+    return sorted(
+        best.values(),
+        key=lambda item: (-item.signal_pct, normalize_bssid(item.bssid)),
+    )
 
+
+def _scan_bssids_for_ssid_netsh(ssid: str) -> list[ScannedBssid]:
+    """Parsea `netsh wlan show networks mode=bssid` para un SSID."""
     output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
     lines = output.splitlines()
-
 
     results: list[ScannedBssid] = []
     current_ssid: str | None = None
@@ -655,21 +664,31 @@ def scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
             continue
 
     _flush_bssid()
+    return _dedupe_scanned_bssids(results)
 
-    # Deduplicar por BSSID normalizado (mejor señal; conservar canal/banda)
-    best: dict[str, ScannedBssid] = {}
-    for item in results:
-        key = normalize_bssid(item.bssid)
-        prev = best.get(key)
-        if prev is None or item.signal_pct > prev.signal_pct:
-            best[key] = item
-        elif prev is not None and item.signal_pct == prev.signal_pct:
-            if not prev.band and item.band:
-                best[key] = item
-    return sorted(
-        best.values(),
-        key=lambda item: (-item.signal_pct, normalize_bssid(item.bssid)),
-    )
+
+def scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
+    """
+    Escanea redes visibles y devuelve BSSID del SSID indicado
+    con señal, canal y banda (2.4 / 5 / 6 GHz).
+
+    Combina API nativa + netsh para no perder repetidores visibles.
+    """
+    merged: list[ScannedBssid] = []
+
+    if HAS_NATIVE_WLAN:
+        try:
+            merged.extend(_native_scan_bssids_for_ssid(ssid))
+        except Exception:
+            pass
+
+    try:
+        merged.extend(_scan_bssids_for_ssid_netsh(ssid))
+    except Exception:
+        if not merged:
+            raise
+
+    return _dedupe_scanned_bssids(merged)
 
 
 def measure_current_network(
@@ -762,6 +781,7 @@ def measure_current_network(
             key=lambda it: (-it.signal_pct, normalize_bssid(it.bssid)),
         )
         if normalize_bssid(item.bssid) != assoc_key
+        and item.signal_pct >= NEARBY_AP_MIN_SIGNAL_PCT
     )
 
     return WifiSample(
@@ -934,6 +954,15 @@ if HAS_NATIVE_WLAN and _wlanapi is not None:
     ]
     _wlanapi.WlanGetNetworkBssList.restype = wintypes.DWORD
 
+    _wlanapi.WlanScan.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(GUID),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    _wlanapi.WlanScan.restype = wintypes.DWORD
+
     _wlanapi.WlanGetAvailableNetworkList.argtypes = [
         wintypes.HANDLE,
         ctypes.POINTER(GUID),
@@ -946,6 +975,34 @@ if HAS_NATIVE_WLAN and _wlanapi is not None:
 
 def _native_format_bssid(bssid_bytes) -> str:
     return ":".join(f"{b:02x}" for b in bssid_bytes)
+
+
+def _iter_native_bss_entries(p_raw_bss_list):
+    """
+    Recorre WLAN_BSS_LIST con stride fijo sizeof(WLAN_BSS_ENTRY).
+
+    Windows coloca primero el arreglo compacto de entradas fijas; los blobs
+    de IE (ulIeOffset/ulIeSize) viven en una zona aparte después. No hay que
+    avanzar con el tamaño del IE: eso desalineaba las entradas siguientes.
+    """
+    if not HAS_NATIVE_WLAN or p_raw_bss_list is None or not p_raw_bss_list.value:
+        return
+
+    header_ptr = ctypes.cast(p_raw_bss_list, ctypes.POINTER(ctypes.c_ulong * 2))
+    dw_total_size = int(header_ptr.contents[0])
+    dw_number_of_items = int(header_ptr.contents[1])
+    struct_size = ctypes.sizeof(WLAN_BSS_ENTRY)
+    base = int(p_raw_bss_list.value)
+
+    for i in range(dw_number_of_items):
+        offset = 8 + i * struct_size
+        if offset + struct_size > dw_total_size:
+            break
+        entry_ptr = ctypes.cast(
+            ctypes.c_void_p(base + offset),
+            ctypes.POINTER(WLAN_BSS_ENTRY),
+        )
+        yield entry_ptr.contents
 
 
 def _native_info_from_frequency(freq_khz: int) -> tuple[int | None, str]:
@@ -1100,22 +1157,12 @@ def _native_get_interface_status() -> InterfaceStatus:
                 )
                 if ret_bss == 0:
                     try:
-                        header_ptr = ctypes.cast(pRawBssList, ctypes.POINTER(ctypes.c_ulong * 2))
-                        dwTotalSize = header_ptr.contents[0]
-                        dwNumberOfItems = header_ptr.contents[1]
-                        struct_size = ctypes.sizeof(WLAN_BSS_ENTRY)
-                        for i in range(dwNumberOfItems):
-                            offset = 8 + i * struct_size
-                            if offset + struct_size > dwTotalSize:
-                                break
-                            entry_ptr = ctypes.cast(
-                                ctypes.c_void_p(pRawBssList.value + offset),
-                                ctypes.POINTER(WLAN_BSS_ENTRY)
-                            )
-                            entry = entry_ptr.contents
+                        for entry in _iter_native_bss_entries(pRawBssList):
                             entry_bssid = _native_format_bssid(entry.dot11Bssid)
                             if normalize_bssid(entry_bssid) == normalize_bssid(bssid):
-                                channel, band = _native_info_from_frequency(entry.ulChCenterFrequency)
+                                channel, band = _native_info_from_frequency(
+                                    entry.ulChCenterFrequency
+                                )
                                 break
                     finally:
                         _wlanapi.WlanFreeMemory(pRawBssList)
@@ -1252,6 +1299,15 @@ def _native_scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
             )
             guid = info_ptr.contents[0].InterfaceGuid
 
+            # Dispara un escaneo fresco; si falla, igual se usa la caché del driver.
+            try:
+                _wlanapi.WlanScan(
+                    client_handle, ctypes.byref(guid), None, None, None
+                )
+                time.sleep(0.45)
+            except Exception:
+                pass
+
             pRawBssList = ctypes.c_void_p()
             ret_bss = _wlanapi.WlanGetNetworkBssList(
                 client_handle,
@@ -1267,51 +1323,41 @@ def _native_scan_bssids_for_ssid(ssid: str) -> list[ScannedBssid]:
                 raise WifiScannerError(f"WlanGetNetworkBssList falló con código {ret_bss}")
 
             try:
-                header_ptr = ctypes.cast(pRawBssList, ctypes.POINTER(ctypes.c_ulong * 2))
-                dwTotalSize = header_ptr.contents[0]
-                dwNumberOfItems = header_ptr.contents[1]
-
                 results: list[ScannedBssid] = []
-                struct_size = ctypes.sizeof(WLAN_BSS_ENTRY)
-                for i in range(dwNumberOfItems):
-                    offset = 8 + i * struct_size
-                    if offset + struct_size > dwTotalSize:
-                        break
-
-                    entry_ptr = ctypes.cast(
-                        ctypes.c_void_p(pRawBssList.value + offset),
-                        ctypes.POINTER(WLAN_BSS_ENTRY)
+                radio_mapping = {
+                    1: "FHSS",
+                    2: "DSSS",
+                    3: "IR Baseband",
+                    4: "802.11a",
+                    5: "HRDSSS (802.11b)",
+                    6: "802.11g",
+                    7: "802.11n",
+                    8: "802.11ac",
+                    9: "802.11ax",
+                }
+                for entry in _iter_native_bss_entries(pRawBssList):
+                    entry_ssid = entry.dot11Ssid.ucSSID[
+                        : entry.dot11Ssid.uSSIDLength
+                    ].decode("utf-8", errors="replace")
+                    if entry_ssid.casefold() != ssid.casefold():
+                        continue
+                    bssid = _native_format_bssid(entry.dot11Bssid)
+                    signal_pct = int(entry.uLinkQuality)
+                    channel, band = _native_info_from_frequency(
+                        entry.ulChCenterFrequency
                     )
-                    entry = entry_ptr.contents
-
-                    entry_ssid = entry.dot11Ssid.ucSSID[:entry.dot11Ssid.uSSIDLength].decode('utf-8', errors='replace')
-                    if entry_ssid.casefold() == ssid.casefold():
-                        bssid = _native_format_bssid(entry.dot11Bssid)
-                        signal_pct = int(entry.uLinkQuality)
-                        channel, band = _native_info_from_frequency(entry.ulChCenterFrequency)
-
-                        radio_mapping = {
-                            1: "FHSS",
-                            2: "DSSS",
-                            3: "IR Baseband",
-                            4: "802.11a",
-                            5: "HRDSSS (802.11b)",
-                            6: "802.11g",
-                            7: "802.11n",
-                            8: "802.11ac",
-                            9: "802.11ax",
-                        }
-                        radio_type = radio_mapping.get(entry.dot11BssPhyType, "Desconocido")
-
-                        results.append(
-                            ScannedBssid(
-                                bssid=bssid,
-                                signal_pct=signal_pct,
-                                channel=channel,
-                                band=band,
-                                radio_type=radio_type,
-                            )
+                    radio_type = radio_mapping.get(
+                        entry.dot11BssPhyType, "Desconocido"
+                    )
+                    results.append(
+                        ScannedBssid(
+                            bssid=bssid,
+                            signal_pct=signal_pct,
+                            channel=channel,
+                            band=band,
+                            radio_type=radio_type,
                         )
+                    )
 
                 best: dict[str, ScannedBssid] = {}
                 for item in results:
