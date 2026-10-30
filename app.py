@@ -316,7 +316,7 @@ class WifiHeatmapApp:
         specs = (
             (0.006, 0.125, 0.138, 0.70),  # panel AP (estrecho)
             (0.856, 0.125, 0.138, 0.70),  # panel info (estrecho)
-            (0.006, 0.006, 0.988, 0.112),  # barra de acciones
+            (0.006, 0.004, 0.988, 0.128),  # barra de acciones
         )
         for x, y, w, h in specs:
             patch = FancyBboxPatch(
@@ -1140,7 +1140,7 @@ class WifiHeatmapApp:
         """Barra inferior: botones de acción con la tecla debajo de cada uno."""
         self._draw_action_toolbar()
         # Paneles estrechos → más protagonismo al mapa
-        self.fig.subplots_adjust(bottom=0.155, left=0.165, right=0.835, top=0.86)
+        self.fig.subplots_adjust(bottom=0.168, left=0.165, right=0.835, top=0.86)
 
     def _clear_action_toolbar(self) -> None:
         for artist in self._toolbar_key_artists:
@@ -1170,22 +1170,27 @@ class WifiHeatmapApp:
 
         self._clear_action_toolbar()
 
-        # (etiqueta, tecla mostrada, callback)
-        actions: list[tuple[str, str, object]] = [
-            ("AP", "a", self._action_mark_ap),
-            ("Plano", "p", self.load_floor_plan),
-            ("Quitar", "c", self.clear_floor_plan),
-            ("Expandir", "e", lambda: self.expand(width=True, height=True)),
-            ("+Ancho", "w", lambda: self.expand(width=True, height=False)),
-            ("+Alto", "r", lambda: self.expand(width=False, height=True)),
-            ("Heatmap", "h", self._action_heatmap),
-            ("Guardar", "g", lambda: self.save_project(ask_path=self.project_path is None)),
-            ("G. como", "Ctrl+g", lambda: self.save_project(ask_path=True)),
-            ("Abrir", "o", self.open_project),
-            ("PNG", "s", self.save),
-            ("Deshacer", "z", self.undo),
-            ("Ayuda", "F1", self.show_usage_guide),
-            ("Salir", "q", lambda: plt.close(self.fig)),
+        # Borde azul de los botones (mismo tono que AP estimado / acento UI)
+        btn_border = "#2563EB"
+        btn_face = "#EFF6FF"
+        btn_hover = "#DBEAFE"
+
+        # (icono, etiqueta, tecla, callback) — icono arriba, texto abajo
+        actions: list[tuple[str, str, str, object]] = [
+            ("▲", "AP", "a", self._action_mark_ap),
+            ("▦", "Plano", "p", self.load_floor_plan),
+            ("✕", "Quitar", "c", self.clear_floor_plan),
+            ("＋", "Expandir", "e", lambda: self.expand(width=True, height=True)),
+            ("↔", "+Ancho", "w", lambda: self.expand(width=True, height=False)),
+            ("↕", "+Alto", "r", lambda: self.expand(width=False, height=True)),
+            ("▣", "Heatmap", "h", self._action_heatmap),
+            ("⬇", "Guardar", "g", lambda: self.save_project(ask_path=self.project_path is None)),
+            ("⇩", "G. como", "Ctrl+g", lambda: self.save_project(ask_path=True)),
+            ("▸", "Abrir", "o", self.open_project),
+            ("▤", "PNG", "s", self.save),
+            ("↶", "Deshacer", "z", self.undo),
+            ("?", "Ayuda", "F1", self.show_usage_guide),
+            ("■", "Salir", "q", lambda: plt.close(self.fig)),
         ]
 
         n = len(actions)
@@ -1194,13 +1199,13 @@ class WifiHeatmapApp:
         gap = 0.004
         usable = right - left - gap * (n - 1)
         btn_w = usable / n
-        btn_h = 0.040
-        btn_y = 0.048
-        key_y = 0.018
+        btn_h = 0.056
+        btn_y = 0.040
+        key_y = 0.016
 
         self._help_artist = self.fig.text(
             0.012,
-            0.100,
+            0.112,
             "Clic = medir / info   ·   clic der. = quitar",
             ha="left",
             va="center",
@@ -1209,19 +1214,27 @@ class WifiHeatmapApp:
             zorder=25,
         )
 
-        for i, (label, key_hint, callback) in enumerate(actions):
+        for i, (icon, label, key_hint, callback) in enumerate(actions):
             x = left + i * (btn_w + gap)
             ax = self.fig.add_axes([x, btn_y, btn_w, btn_h])
             ax.set_zorder(40)
             btn = Button(
                 ax,
-                label,
-                color=UI_SOFT,
-                hovercolor=UI_CONNECTED_SOFT,
+                f"{icon}\n{label}",
+                color=btn_face,
+                hovercolor=btn_hover,
             )
-            btn.label.set_fontsize(7.5)
+            btn.label.set_fontsize(7.2)
             btn.label.set_color(UI_TEXT)
             btn.label.set_fontweight("bold")
+            btn.label.set_linespacing(1.15)
+            # Borde azul (después del Button, que toca el frame del axes)
+            ax.patch.set_edgecolor(btn_border)
+            ax.patch.set_linewidth(1.8)
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_color(btn_border)
+                spine.set_linewidth(1.8)
             # Evitar captura tardía incorrecta en el bucle
             btn.on_clicked(lambda _event, cb=callback: cb())
             self._toolbar_axes.append(ax)
@@ -1234,7 +1247,7 @@ class WifiHeatmapApp:
                 ha="center",
                 va="center",
                 fontsize=7,
-                color=UI_MUTED,
+                color=btn_border,
                 fontweight="bold",
                 zorder=25,
             )
